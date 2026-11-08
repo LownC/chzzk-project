@@ -1,0 +1,65 @@
+HELP.md
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### H2 ###
+*.mv.db
+*.trace.db
+
+### Uploaded videos ###
+*.mp4
+
+### Secrets / env ###
+.env
+.env.*
+!.env.example
+
+### Logs ###
+*.log
+logs/
+
+### Claude Code ###
+.claude/settings.local.json
+# 개인 PC 경로가 들어 있어 공개하지 않는다
+.claude/settings.json
+
+### Internal design and work records ###
+.scratch/
+
+### OS ###
+.DS_Store
+Thumbs.db

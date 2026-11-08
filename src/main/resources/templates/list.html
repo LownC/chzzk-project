@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>방송 목록 - 치지직</title>
+</head>
+<body>
+<header th:replace="~{fragments/header :: header}"></header>
+<main>
+	<h1>방송 목록</h1>
+	<section th:if="${noBroadcasts}">
+		<p>등록된 방송이 없습니다. 첫 번째 방송을 등록해 보세요.</p>
+		<a href="/broadcasts/new">방송 등록</a>
+	</section>
+	<ul class="broadcast-list" th:unless="${noBroadcasts}">
+		<li th:each="broadcast : ${broadcasts}">
+			<a th:href="@{/broadcasts/{id}(id=${broadcast.id})}" th:text="${broadcast.title}"></a>
+			<time th:text="${#temporals.format(broadcast.createdAt, 'yyyy.MM.dd HH:mm')}"></time>
+		</li>
+	</ul>
+	<nav class="pagination" th:unless="${noBroadcasts}">
+		<a class="previous-group" th:if="${previousGroupPage}"
+		   th:href="@{/broadcasts(page=${previousGroupPage})}">이전</a>
+		<a class="page-number" th:each="number : ${pageNumbers}"
+		   th:href="@{/broadcasts(page=${number})}"
+		   th:attr="aria-current=${number == currentPage} ? 'page' : null"
+		   th:text="${number}"></a>
+		<a class="next-group" th:if="${nextGroupPage}"
+		   th:href="@{/broadcasts(page=${nextGroupPage})}">다음</a>
+	</nav>
+</main>
+</body>
+</html>

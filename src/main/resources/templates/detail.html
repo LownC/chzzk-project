@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title th:text="${broadcast.title} + ' - 치지직'">방송 - 치지직</title>
+	<style>
+		.video-player {
+			position: relative;
+			width: 100%;
+			max-width: 960px;
+			aspect-ratio: 16 / 9;
+			background: #000;
+		}
+
+		.video-player video {
+			width: 100%;
+			height: 100%;
+			object-fit: contain;
+		}
+
+		.video-player .video-error {
+			position: absolute;
+			inset: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			margin: 0;
+			color: #fff;
+		}
+
+		.video-player .video-error[hidden] {
+			display: none;
+		}
+	</style>
+</head>
+<body>
+<header th:replace="~{fragments/header :: header}"></header>
+<main>
+	<h1 th:text="${broadcast.title}"></h1>
+	<time th:text="${#temporals.format(broadcast.createdAt, 'yyyy.MM.dd HH:mm')}"></time>
+	<div class="video-player">
+		<video controls="controls" preload="metadata"
+			   th:src="@{/videos/{fileName}(fileName=${broadcast.videoFileName})}"></video>
+		<p class="video-error" hidden="hidden">영상을 재생할 수 없습니다.</p>
+	</div>
+</main>
+<script>
+	document.querySelector('.video-player video').addEventListener('error', function () {
+		this.hidden = true;
+		document.querySelector('.video-player .video-error').hidden = false;
+	});
+</script>
+</body>
+</html>

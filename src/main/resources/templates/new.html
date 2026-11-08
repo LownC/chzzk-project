@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>방송 등록 - 치지직</title>
+</head>
+<body>
+<header th:replace="~{fragments/header :: header}"></header>
+<main>
+	<h1>방송 등록</h1>
+	<p class="error-message" role="alert" th:text="${errorMessage}"></p>
+	<form id="broadcast-form" method="post" action="/broadcasts" enctype="multipart/form-data">
+		<p>
+			<label for="title">제목</label>
+			<input id="title" type="text" name="title" th:value="${title}"/>
+		</p>
+		<p>
+			<label for="videoFile">영상 파일</label>
+			<input id="videoFile" type="file" name="videoFile"/>
+		</p>
+		<button type="submit">등록</button>
+		<p class="upload-progress" hidden="hidden">
+			<progress max="100" value="0"></progress>
+			<span class="upload-percent">0%</span>
+		</p>
+	</form>
+</main>
+<script src="/js/broadcast-upload.js"></script>
+</body>
+</html>
