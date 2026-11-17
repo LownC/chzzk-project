@@ -17,17 +17,23 @@ repositories {
 	mavenCentral()
 }
 
+// Spring Boot 4.1.2가 관리하는 H2 2.4.240은 CHECK(IN ...) 제약을 만든 DB 연결이 닫히면 이후 쓰기가 모두 실패한다.
+// 수정이 들어간 2.5.252로 올린다. 자세한 내용은 README의 "H2 버전 고정" 절을 본다.
+extra["h2.version"] = "2.5.252"
+
 dependencies {
 	implementation("org.springframework.boot:spring-boot-h2console")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	implementation("org.springframework.boot:spring-boot-starter-websocket")
 	runtimeOnly("com.h2database:h2")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-thymeleaf-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-validation-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+	testImplementation("org.springframework.boot:spring-boot-starter-websocket-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

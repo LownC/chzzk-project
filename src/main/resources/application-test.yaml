@@ -16,3 +16,5 @@ spring:
 app:
   file:
     upload-dir: ${java.io.tmpdir}/chzzk-test/uploads
+  live:
+    expiry-check-enabled: false

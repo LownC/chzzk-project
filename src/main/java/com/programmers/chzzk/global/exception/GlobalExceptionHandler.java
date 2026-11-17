@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 import com.programmers.chzzk.broadcast.BroadcastRegistrationError;
 import com.programmers.chzzk.broadcast.BroadcastRegistrationException;
@@ -59,12 +60,19 @@ public class GlobalExceptionHandler {
 	}
 
 	/**
+	 * 클라이언트가 응답을 받다가 연결을 끊은 경우(영상 구간 이동 등)는 서버 오류가 아니므로 DEBUG로만 남기고
+	 * 화면을 그리지 않는다. 이미 응답을 쓰던 중이라 오류 화면을 그리면 두 번째 예외가 난다.
 	 * 등록 요청에서 분류되지 않은 예외(DB 저장 실패 포함)는 일반 등록 실패로 응답한다.
 	 * 그 밖의 요청은 찾을 수 없음(방송 없음, 없는 경로·영상)이면 404 화면, Spring이 상태를 정해 둔 다른 요청 오류는
 	 * 기본 오류 처리에 맡기고, 나머지 예상하지 못한 오류는 500 화면으로 응답한다.
 	 */
 	@ExceptionHandler(Exception.class)
 	public Object handleUnexpectedFailure(Exception exception, HttpServletRequest request) throws Exception {
+		if (DisconnectedClientHelper.isClientDisconnectedException(exception)) {
+			log.debug("클라이언트 연결 중단: method={}, uri={}, cause={}",
+				request.getMethod(), request.getRequestURI(), exception.toString());
+			return new ModelAndView();
+		}
 		if (isRegistrationRequest(request)) {
 			log.error("방송 등록 중 예상하지 못한 오류", exception);
 			BroadcastRegistrationError error = BroadcastRegistrationError.REGISTRATION_FAILED;

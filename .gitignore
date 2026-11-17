@@ -48,6 +48,14 @@ out/
 .env.*
 !.env.example
 
+### Development HTTPS certificates and keys ###
+*.p12
+*.pfx
+*.jks
+*.key
+*.crt
+*.csr
+
 ### Logs ###
 *.log
 logs/

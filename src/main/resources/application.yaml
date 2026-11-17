@@ -22,3 +22,8 @@ spring:
 app:
   file:
     upload-dir: ${APP_UPLOAD_DIR:C:/Users/Wonseok/Desktop/Dev/programmers/chzzk_project/chzzk_uploads/broadcasts}
+  live:
+    max-viewers: 4
+    heartbeat-timeout: 30s
+    expiry-check-interval: 10s
+    ice-servers: ${APP_LIVE_ICE_SERVERS:}
