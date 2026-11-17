@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>후원 결과 - 치지직</title>
+</head>
+<body>
+<header th:replace="~{fragments/header :: header}"></header>
+<main>
+	<h1>후원 결과</h1>
+	<p class="donation-status" th:switch="${donation.status.name()}">
+		<span th:case="'DONE'">후원이 완료되었습니다. 감사합니다!</span>
+		<span th:case="'CANCELED'">결제를 취소했습니다. 후원되지 않았습니다.</span>
+		<span th:case="'FAILED'">결제가 승인되지 않아 후원되지 않았습니다.</span>
+		<span th:case="'IN_PROGRESS'">결제 승인을 확인하는 중입니다. 잠시 후 새로고침해 주세요.</span>
+		<span th:case="*">결제가 아직 끝나지 않았습니다.</span>
+	</p>
+	<p class="donation-failure" th:if="${donation.failureCode}" th:text="'사유 코드: ' + ${donation.failureCode}"></p>
+	<dl>
+		<dt>방송</dt>
+		<dd th:text="${donation.broadcast.title}"></dd>
+		<dt>받는 사람</dt>
+		<dd th:text="${donation.recipient.username}"></dd>
+		<dt>금액</dt>
+		<dd th:text="${#numbers.formatInteger(donation.amount, 1, 'COMMA')} + '원'"></dd>
+		<dt>주문번호</dt>
+		<dd class="donation-order-id" th:text="${donation.orderId}"></dd>
+		<th:block th:if="${donation.paymentKey}">
+			<dt>결제 키</dt>
+			<dd class="donation-payment-key" th:text="${donation.paymentKey}"></dd>
+		</th:block>
+	</dl>
+	<p><a th:href="@{/broadcasts/{id}(id=${donation.broadcast.id})} + '#donations'">방송으로 돌아가기</a></p>
+</main>
+</body>
+</html>

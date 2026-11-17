@@ -19,6 +19,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.programmers.chzzk.comment.CommentRepository;
+import com.programmers.chzzk.donation.DonationRepository;
 import com.programmers.chzzk.member.MemberRepository;
 
 class BroadcastServiceTests {
@@ -30,7 +31,8 @@ class BroadcastServiceTests {
 	private final BroadcastRepository broadcastRepository = mock(BroadcastRepository.class);
 	private final VideoFileStorage videoFileStorage = mock(VideoFileStorage.class);
 	private final BroadcastService broadcastService = new BroadcastService(broadcastRepository, videoFileStorage,
-		mock(MemberRepository.class), mock(CommentRepository.class), mock(PlatformTransactionManager.class));
+		mock(MemberRepository.class), mock(CommentRepository.class), mock(DonationRepository.class),
+		mock(PlatformTransactionManager.class));
 
 	@Test
 	void videoFileLargerThan500MbIsRejectedBeforeStoring() throws Exception {

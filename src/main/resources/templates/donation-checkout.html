@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>후원 결제 - 치지직</title>
+</head>
+<body>
+<header th:replace="~{fragments/header :: header}"></header>
+<main id="donation-checkout"
+	  th:attr="data-gateway=${gateway},data-client-key=${tossClientKey},data-customer-key=${customerKey},data-order-id=${donation.orderId},data-order-name=${orderName},data-amount=${donation.amount},data-success-url=${successUrl},data-fail-url=${failUrl}">
+	<h1>후원 결제</h1>
+	<dl>
+		<dt>방송</dt>
+		<dd th:text="${donation.broadcast.title}"></dd>
+		<dt>받는 사람</dt>
+		<dd class="checkout-recipient" th:text="${donation.recipient.username}"></dd>
+		<dt>금액</dt>
+		<dd class="checkout-amount" th:text="${#numbers.formatInteger(donation.amount, 1, 'COMMA')} + '원'"></dd>
+		<dt>메시지</dt>
+		<dd th:text="${donation.message} ?: '(없음)'"></dd>
+	</dl>
+
+	<th:block th:if="${gateway == 'toss'}">
+		<p>토스페이먼츠 <strong>테스트 모드</strong> 결제창이 열립니다. 테스트 결제라 실제 돈은 나가지 않습니다.</p>
+		<p class="checkout-error" role="alert" hidden="hidden"></p>
+		<button id="toss-pay" type="button">토스페이먼츠로 결제하기</button>
+	</th:block>
+
+	<th:block th:if="${gateway == 'fake'}">
+		<p>가짜 결제창(외부 결제 서비스 호출 없음)입니다. 토스 결제창이 돌려주는 결과를 흉내 냅니다.</p>
+		<form class="fake-pay" th:action="@{/donations/{orderId}/fake-pay(orderId=${donation.orderId})}" method="post">
+			<button type="submit" name="result" value="approve">결제 승인(테스트)</button>
+			<button type="submit" name="result" value="decline">승인 단계에서 거절(테스트)</button>
+			<button type="submit" name="result" value="fail">결제 실패(테스트)</button>
+			<button type="submit" name="result" value="cancel">결제 취소(테스트)</button>
+		</form>
+	</th:block>
+</main>
+<script th:if="${gateway == 'toss'}" src="https://js.tosspayments.com/v2/standard"></script>
+<script th:if="${gateway == 'toss'}" src="/js/donation-checkout.js"></script>
+</body>
+</html>

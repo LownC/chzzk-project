@@ -22,6 +22,7 @@ import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.programmers.chzzk.comment.CommentService;
+import com.programmers.chzzk.donation.DonationService;
 import com.programmers.chzzk.global.exception.NotFoundException;
 import com.programmers.chzzk.live.LiveProperties;
 import com.programmers.chzzk.member.LoginMember;
@@ -35,12 +36,14 @@ public class BroadcastController {
 
 	private final BroadcastService broadcastService;
 	private final CommentService commentService;
+	private final DonationService donationService;
 	private final LiveProperties liveProperties;
 
 	public BroadcastController(BroadcastService broadcastService, CommentService commentService,
-		LiveProperties liveProperties) {
+		DonationService donationService, LiveProperties liveProperties) {
 		this.broadcastService = broadcastService;
 		this.commentService = commentService;
+		this.donationService = donationService;
 		this.liveProperties = liveProperties;
 	}
 
@@ -79,6 +82,8 @@ public class BroadcastController {
 		model.addAttribute("broadcast", broadcast);
 		model.addAttribute("isOwner", loginMember != null && broadcast.isOwnedBy(loginMember.getId()));
 		model.addAttribute("comments", commentService.findComments(broadcast.getId()));
+		model.addAttribute("donations", donationService.findDonations(broadcast.getId()));
+		model.addAttribute("donationTotal", donationService.totalAmount(broadcast.getId()));
 		if (broadcast.getType() == BroadcastType.LIVE) {
 			model.addAttribute("iceServers", String.join(",", liveProperties.iceServers()));
 			return "live-watch";
@@ -144,7 +149,7 @@ public class BroadcastController {
 		long broadcastId = requireBroadcastId(id);
 		try {
 			broadcastService.delete(broadcastId, loginMember.getId());
-		} catch (BroadcastStillLiveException e) {
+		} catch (BroadcastStillLiveException | BroadcastHasDonationsException e) {
 			redirectAttributes.addFlashAttribute("manageError", e.getMessage());
 			return "redirect:" + detailUrl(broadcastId);
 		}
