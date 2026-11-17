@@ -196,3 +196,226 @@ chzzk-autoscale-redis-1 Up 43 minutes
 
 
 
+
+==================================================================
+# 2차 검증 (2026-11-18 07:5x~08:33, digest 고정 이미지 + 중계 순서 수정)
+==================================================================
+
+## 공용 상태 HTTP 확인 (verify-cluster, 최종 이미지)
+PASS lb distributes /broadcasts :: {"22f5d024ceff":15,"bd52faf63463":15}
+PASS login session valid on every instance (Redis session) :: status200=true instances={"22f5d024ceff":10,"bd52faf63463":10}
+PASS uploaded video served by every instance (shared volume) :: upload on bd52faf63463 status=302 -> id=12 src=/videos/17cf17d0-4a31-4d40-95eb-fae82b9199ff.mp4; served={"bd52faf63463":6,"22f5d024ceff":6} sha-match=true
+PASS comment visible from every instance (shared DB) :: posted on 22f5d024ceff status=302; read={"bd52faf63463":5,"22f5d024ceff":5}
+PASS donation confirmed across instances (Redis fake ledger) :: 22f5d024ceff->bd52faf63463:DONE 22f5d024ceff->bd52faf63463:DONE 22f5d024ceff->bd52faf63463:DONE 22f5d024ceff->bd52faf63463:DONE ; total shows 4,000
+SUMMARY 5/5 passed
+
+## 라이브 인스턴스 사이 확인 (verify-live, 최종 이미지)
+PASS viewer on another instance joins publisher room (Redis room store + relay) :: publisher@22f5d024ceff viewers=viewer0@bd52faf63463,viewer1@bd52faf63463,viewer2@22f5d024ceff
+PASS offer/answer relayed between instances :: 22f5d024ceff <-> bd52faf63463
+PASS stopping an instance sends reconnect + close 1012 to its clients :: stopped 22f5d024ceff after 609ms; publisher close=1012 (skipped before reconnect: ); viewer closes=[1012]
+  reconnect attempts: ["101"] in 2520ms
+PASS publisher resumes on surviving instance, broadcast still live :: resumed on bd52faf63463
+PASS viewers on surviving instance keep watching, others re-watch :: kept=viewer0,viewer1 rewatched=viewer2-again@bd52faf63463
+PASS end reaches viewers on every instance :: 3 viewers
+SUMMARY 6/6 passed; stopped=22f5d024ceff
+
+## 동시 쓰기·Redis 장애 (verify-extra, 최종 이미지)
+PASS 20 concurrent comments through several instances stored once each (H2 TCP) :: statuses=302 instances=2 unique=20 shown=20
+PASS concurrent success requests confirm each donation once (total 3,000 for 3 orders) :: order0: hits=302 instances=2 done=true | order1: hits=302 instances=2 done=true | order2: hits=302 instances=2 done=true ; total3000=true overCount=false
+INFO 23:19:04 publisher@bd52faf63463 live=15
+INFO 23:19:04 stopping redis (docker compose stop redis, this project only)
+INFO 23:19:09 during outage anon /broadcasts: 200/12ms,200/13ms,200/11ms,200/13ms
+INFO 23:19:09 during outage logged-in /broadcasts/new: 500/2019ms,500/2018ms,500/2018ms,500/2018ms
+PASS during Redis outage requests fail fast with a generic error page (no internal message) :: anon=200/12ms,200/13ms,200/11ms,200/13ms logged=500/2019ms,500/2018ms,500/2018ms,500/2018ms maxMs=2019 internalLeak=false
+PASS during Redis outage a new viewer gets SERVER_ERROR and the connection stays open :: {"type":"error","code":"SERVER_ERROR","open":true,"instance":"22f5d024ceff"}
+INFO 23:19:12 starting redis again
+PASS after Redis is back the same login works again on every instance (session kept by Redis AOF) :: statuses=200,200,200,200,200,200 instances=2
+PASS after Redis is back, signaling is relayed between instances again (pub/sub re-subscribed) :: publisher@bd52faf63463 viewers=22f5d024ceff
+SUMMARY 6/6 passed
+
+## 자동 스케일 중 세션·라이브 관찰 (cycle 7, 최종 이미지, nginx 원래 설정)
+### 오토스케일러 로그
+2026-11-18T08:19:30 start min=2 max=5 out>=60% x2 in<20% x3 interval=10s
+2026-11-18T08:19:32 instances=2 cpu=9% (high=0 low=1 cooldown=False)
+2026-11-18T08:19:44 instances=2 cpu=1.4% (high=0 low=2 cooldown=False)
+2026-11-18T08:19:57 instances=2 cpu=3.3% (high=0 low=3 cooldown=False)
+2026-11-18T08:20:09 instances=2 cpu=0.2% (high=0 low=4 cooldown=False)
+2026-11-18T08:20:21 instances=2 cpu=96.4% (high=1 low=0 cooldown=False)
+2026-11-18T08:20:33 instances=2 cpu=98.8% -> scale-out to 3
+2026-11-18T08:20:46 instances=3 cpu=97.3% (high=1 low=0 cooldown=True)
+2026-11-18T08:20:59 instances=3 cpu=87.4% (high=2 low=0 cooldown=True)
+2026-11-18T08:21:12 instances=3 cpu=97.6% -> scale-out to 4
+2026-11-18T08:21:25 instances=4 cpu=97.8% (high=1 low=0 cooldown=True)
+2026-11-18T08:21:37 instances=4 cpu=82.1% (high=2 low=0 cooldown=True)
+2026-11-18T08:21:51 instances=4 cpu=98.4% -> scale-out to 5
+2026-11-18T08:22:04 instances=5 cpu=98% (high=1 low=0 cooldown=True)
+2026-11-18T08:22:16 instances=5 cpu=98.7% (high=2 low=0 cooldown=True)
+2026-11-18T08:22:29 instances=5 cpu=98.1% (high=3 low=0 cooldown=False)
+2026-11-18T08:22:42 instances=5 cpu=100.3% (high=4 low=0 cooldown=False)
+2026-11-18T08:22:54 instances=5 cpu=71.2% (high=5 low=0 cooldown=False)
+2026-11-18T08:23:07 instances=5 cpu=0.5% (high=0 low=1 cooldown=False)
+2026-11-18T08:23:19 instances=5 cpu=0.2% (high=0 low=2 cooldown=False)
+2026-11-18T08:23:33 instances=5 cpu=0.3% -> scale-in to 4
+2026-11-18T08:23:46 instances=4 cpu=12% (high=0 low=1 cooldown=True)
+2026-11-18T08:23:58 instances=4 cpu=1% (high=0 low=2 cooldown=True)
+2026-11-18T08:24:12 instances=4 cpu=0.6% -> scale-in to 3
+2026-11-18T08:24:25 instances=3 cpu=0.3% (high=0 low=1 cooldown=True)
+2026-11-18T08:24:37 instances=3 cpu=0.6% (high=0 low=2 cooldown=True)
+2026-11-18T08:24:51 instances=3 cpu=0.4% -> scale-in to 2
+2026-11-18T08:25:02 instances=2 cpu=1.2% (high=0 low=1 cooldown=True)
+2026-11-18T08:25:14 instances=2 cpu=0.4% (high=0 low=2 cooldown=True)
+2026-11-18T08:25:26 instances=2 cpu=0.9% (high=0 low=3 cooldown=False)
+### 관찰 스크립트 요약
+{"probes":105,"sessionFail":1,"liveFail":0,"sessionInstances":6,"maxApps":5,"appsSeen":[2,3,4,5,4,3,2],"pubReconnects":0,"pubResumed":0,"pubResumeFail":0,"viewerRewatch":3,"offersToViewer":16,"answersToPub":16,"endedPub":true,"endedViewer":true,"endedViewers":4,"offersAfterRewatch":3,"extrasOnNewInstances":3,"broadcastId":16,"viewersAtEnd":["viewer@22f5d024ceff(ended)","extra1@bd52faf63463(rewatched)(ended)","extra2@bd52faf63463(rewatched)(ended)","extra3@22f5d024ceff(rewatched)(ended)"]}
+### 관찰 스크립트 사건(배치·재연결·실패 응답)
+23:19:31 start broadcast=16 publisher@bd52faf63463 viewer@22f5d024ceff
+23:21:55 extra1 placed @a1875e0069d6
+23:22:00 extra2 placed @a1875e0069d6
+23:22:00 extra3 placed @a1875e0069d6
+23:24:50 extra2@a1875e0069d6 got reconnect
+23:24:50 extra2@a1875e0069d6 closed 1012
+23:24:50 extra1@a1875e0069d6 got reconnect
+23:24:50 extra3@a1875e0069d6 got reconnect
+23:24:50 extra1@a1875e0069d6 closed 1012
+23:24:50 extra3@a1875e0069d6 closed 1012
+23:24:50 extra3 re-watch @22f5d024ceff
+23:24:50 extra1 re-watch @bd52faf63463
+23:24:52 extra2 handshake failed: HTTP/1.1 502 Bad Gateway
+23:24:53 apps=2 session=502@null live=true pub@bd52faf63463 viewers=viewer@22f5d024ceff,extra1@bd52faf63463,extra2@a1875e0069d6,extra3@22f5d024ceff
+23:24:53 extra2 re-watch @bd52faf63463
+23:25:31 SUMMARY {"probes":105,"sessionFail":1,"liveFail":0,"sessionInstances":6,"maxApps":5,"appsSeen":[2,3,4,5,4,3,2],"pubReconnects":0,"pubResumed":0,"pubResumeFail":0,"viewerRewatch":3,"offersToViewer":16,"answersToPub":16,"endedPub":true,"endedViewer":tru
+### k6 요약
+    checks_failed......................: 0.00%   0 out of 124587
+    http_req_duration.......................................................: avg=53.01ms  min=1.05ms  med=45.33ms  max=3.95s p(90)=100.37ms p(95)=165.68ms
+    http_req_failed.........................................................: 0.00%  0 out of 124587
+    http_reqs...............................................................: 124587 732.728589/s
+    vus_max.................................................................: 60     min=60          max=60
+### docker compose ps (부하 직후 / 스케일 인 뒤)
+chzzk-autoscale-app-1 Up 4 minutes
+chzzk-autoscale-app-2 Up 6 minutes
+chzzk-autoscale-app-3 Up 2 minutes
+chzzk-autoscale-app-4 Up About a minute
+chzzk-autoscale-app-5 Up About a minute
+chzzk-autoscale-h2-1 Up 6 minutes
+chzzk-autoscale-lb-1 Up 30 minutes
+chzzk-autoscale-redis-1 Up 3 minutes
+chzzk-autoscale-app-1 Up 6 minutes
+chzzk-autoscale-app-2 Up 8 minutes
+chzzk-autoscale-h2-1 Up 8 minutes
+chzzk-autoscale-lb-1 Up 32 minutes
+chzzk-autoscale-redis-1 Up 6 minutes
+
+## 비교 실행 (cycle 8, nginx max_fails=0 임시 설정 → 같은 502가 나와 되돌림)
+{"probes":108,"sessionFail":0,"liveFail":1,"sessionInstances":5,"maxApps":5,"appsSeen":[2,3,4,5,4,3,2],"pubReconnects":0,"pubResumed":0,"pubResumeFail":0,"viewerRewatch":3,"offersToViewer":13,"answersToPub":13,"endedPub":true,"endedViewer":true,"endedViewers":4,"offersAfterRewatch":3,"extrasOnNewInstances":3,"broadcastId":17,"viewersAtEnd":["viewer@bd52faf63463(ended)","extra1@22f5d024ceff(rewatched)(ended)","extra2@bd52faf63463(rewatched)(ended)","extra3@22f5d024ceff(rewatched)(ended)"]}
+23:31:22 apps=3 session=200@bd52faf63463 live=false pub@22f5d024ceff viewers=viewer@bd52faf63463,extra1@fd888c5adb47,extra2@fd888c5adb47,extra3@fd888c5adb47
+23:31:59 extra3 handshake failed: HTTP/1.1 502 Bad Gateway
+2026-11-18T08:27:39 instances=2 cpu=100% -> scale-out to 3
+2026-11-18T08:28:18 instances=3 cpu=101.4% -> scale-out to 4
+2026-11-18T08:28:57 instances=4 cpu=103.3% -> scale-out to 5
+2026-11-18T08:30:40 instances=5 cpu=0.2% -> scale-in to 4
+2026-11-18T08:31:18 instances=4 cpu=4.7% -> scale-in to 3
+2026-11-18T08:31:57 instances=3 cpu=0.6% -> scale-in to 2
+
+## 스케일 인 직후 502 (nginx 오류 로그 발췌)
+2026/11/17 23:16:56 [error] 33#33: *346568 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:56 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:56 [error] 33#33: *346569 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:56 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:56 [error] 36#36: *346570 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:56 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+172.20.0.1 - - [17/Nov/2026:23:16:56 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:56 [error] 36#36: *346571 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+2026/11/17 23:16:56 [error] 36#36: *346572 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:56 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:56 [error] 36#36: *346573 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:56 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:56 [error] 36#36: *346574 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:56 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:56 [error] 36#36: *346575 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:56 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+172.20.0.1 - - [17/Nov/2026:23:16:59 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:59 [error] 36#36: *346579 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:59 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:59 [error] 36#36: *346580 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:59 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:59 [error] 36#36: *346581 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:59 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+172.20.0.1 - - [17/Nov/2026:23:16:59 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:59 [error] 36#36: *346582 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:59 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:59 [error] 36#36: *346583 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+2026/11/17 23:16:59 [error] 36#36: *346584 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:59 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:16:59 [error] 36#36: *346585 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:16:59 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+172.20.0.1 - - [17/Nov/2026:23:17:01 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:01 [error] 36#36: *346586 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+2026/11/17 23:17:01 [error] 36#36: *346587 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:01 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:01 [error] 32#32: *346588 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:01 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:01 [error] 32#32: *346589 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:01 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+172.20.0.1 - - [17/Nov/2026:23:17:01 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:01 [error] 32#32: *346590 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:02 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:02 [error] 32#32: *346591 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+2026/11/17 23:17:02 [error] 32#32: *346592 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:02 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:02 [error] 32#32: *346593 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:02 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:04 [error] 32#32: *346594 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:04 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:04 [error] 32#32: *346595 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:04 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+172.20.0.1 - - [17/Nov/2026:23:17:04 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:04 [error] 32#32: *346596 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+2026/11/17 23:17:04 [error] 32#32: *346597 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:04 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:04 [error] 32#32: *346598 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:04 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+172.20.0.1 - - [17/Nov/2026:23:17:04 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:04 [error] 32#32: *346599 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+2026/11/17 23:17:04 [error] 32#32: *346600 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:04 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:04 [error] 32#32: *346601 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:04 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+172.20.0.1 - - [17/Nov/2026:23:17:06 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+172.20.0.1 - - [17/Nov/2026:23:17:06 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:06 [error] 32#32: *346605 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+2026/11/17 23:17:07 [error] 35#35: *346606 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:07 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:07 [error] 35#35: *346607 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:07 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:07 [error] 35#35: *346608 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:07 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:07 [error] 35#35: *346609 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:07 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:07 [error] 35#35: *346610 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:07 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:07 [error] 35#35: *346611 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:07 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:09 [error] 35#35: *346612 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:09 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:09 [error] 35#35: *346613 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:09 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:09 [error] 35#35: *346614 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:09 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:09 [error] 35#35: *346615 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:09 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:09 [error] 35#35: *346616 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:09 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:09 [error] 35#35: *346617 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:09 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:09 [error] 35#35: *346618 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:17:09 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+172.20.0.1 - - [17/Nov/2026:23:17:09 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "curl/8.22.0"
+2026/11/17 23:17:09 [error] 35#35: *346619 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+2026/11/17 23:24:52 [error] 30#30: *472018 no live upstreams while connecting to upstream, request: "GET /ws/live HTTP/1.1", upstream: "http://chzzk_app/ws/live", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:24:52 +0000] "GET /ws/live HTTP/1.1" 502 157 "-" "-"
+172.20.0.1 - - [17/Nov/2026:23:24:53 +0000] "GET /broadcasts/new HTTP/1.1" 502 157 "-" "node"
+2026/11/17 23:24:53 [error] 39#39: *414059 no live upstreams while connecting to upstream, request: "GET /broadcasts/new HTTP/1.1", upstream: "http://chzzk_app/broadcasts/new", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:31:22 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "node"
+2026/11/17 23:31:22 [error] 55#55: *747298 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
+2026/11/17 23:31:59 [error] 55#55: *747321 no live upstreams while connecting to upstream, request: "GET /ws/live HTTP/1.1", upstream: "http://chzzk_app/ws/live", host: "127.0.0.1:18090"
+172.20.0.1 - - [17/Nov/2026:23:31:59 +0000] "GET /ws/live HTTP/1.1" 502 157 "-" "-"

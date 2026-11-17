@@ -328,7 +328,14 @@ autoscaler.ps1 ── docker stats(CPU) ──▶ docker compose up --scale app=
 
 ### 준비
 
-- Docker Desktop(Compose v2 포함), JDK 25. 처음 실행할 때 공개 이미지 `eclipse-temurin:25-jre`, `redis:7.4-alpine`, `nginx:1.28-alpine`, `grafana/k6:1.0.0`을 내려받습니다.
+- Docker Desktop(Compose v2 포함), JDK 25. 처음 실행할 때 아래 공개 이미지를 내려받습니다. 다시 받아도 같은 이미지가 되도록 태그와 digest(여러 아키텍처 목록 digest)를 함께 고정했습니다. 2026-11-18에 레지스트리에서 digest와 `linux/amd64` 포함을 확인했습니다.
+
+  | 이미지 | 쓰는 곳 | 출처 | digest |
+  | --- | --- | --- | --- |
+  | `eclipse-temurin:25-jre` | `Dockerfile` 기반 이미지 | Docker 공식 이미지(`library/`, Eclipse Adoptium) | `sha256:945247f9d092703e0c6be92243ef3c51640229e23ab34d353c8dcdc73e6cd4e6` |
+  | `redis:7.4-alpine` | `compose.yaml` redis | Docker 공식 이미지(`library/`) | `sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe` |
+  | `nginx:1.28-alpine` | `compose.yaml` lb | Docker 공식 이미지(`library/`) | `sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236` |
+  | `grafana/k6:1.0.0` | 부하 발생(`docker run`) | Grafana Labs 배포 이미지(`grafana/`) | `sha256:f21270290d702cbf0a7d6ba5d7ed100b63bcb233b558b885ed787547b3488279` |
 - 포트는 `127.0.0.1:18090`(바꾸려면 `CHZZK_HTTP_PORT`) 하나만 엽니다. H2·Redis·앱 포트는 컨테이너 네트워크 안에서만 열립니다.
 - 클러스터의 DB·영상은 Docker 볼륨(`chzzk-autoscale_h2data`, `_redisdata`, `_uploads`)에 저장되며, 개발용 H2 파일 DB(`chzzk_data`)와 업로드 폴더와는 따로입니다.
 
@@ -366,7 +373,7 @@ Copy-Item deploy\.env.example deploy\.env    # 처음 한 번, 비밀번호를 �
 2. **부하 걸기**(PowerShell 창 B, 저장소 루트): 가상 사용자 60명이 30초 동안 늘어나 3분 동안 목록·로그인 화면을 읽고(데이터를 바꾸지 않음) 20초 동안 줄어듭니다.
 
    ```powershell
-   docker run --rm --network chzzk-autoscale_default -e BASE_URL=http://lb -v "${PWD}\deploy\load:/scripts:ro" grafana/k6:1.0.0 run /scripts/k6-load.js
+   docker run --rm --network chzzk-autoscale_default -e BASE_URL=http://lb -v "${PWD}\deploy\load:/scripts:ro" grafana/k6:1.0.0@sha256:f21270290d702cbf0a7d6ba5d7ed100b63bcb233b558b885ed787547b3488279 run /scripts/k6-load.js
    ```
 
 3. **늘어나는지 확인**: 창 A에 `cpu=`가 60% 이상으로 두 번 연속 찍히면 `-> scale-out to 3`이 나오고, 30초 쿨다운 뒤에도 높으면 4, 5까지 늘어납니다. `docker compose -f deploy/compose.yaml --env-file deploy/.env ps app`에 `app-3`~`app-5`가 보입니다.
@@ -457,6 +464,25 @@ k6 결과: 요청 210,594개(초당 약 1,239개), 실패 0%, 확인 항목 100%
 - 멈춘 직후의 첫 다시 연결은 nginx가 아직 멈춘 인스턴스로 보내 502·504로 실패할 수 있습니다. 화면은 0.5·1·2·3·5초 간격으로 다시 시도하며, 검증에서는 멈춘 뒤 약 1~4초 안에 다시 연결됐습니다.
 - 처음 브라우저 확인에서 "송출자가 끊겨 있는 동안 다시 입장한 시청자를 송출자가 모르는" 문제를 찾아, `resume` 응답에 시청자 목록을 넣고 송출 화면이 이 목록으로 연결을 맞추도록 고친 뒤 다시 확인했습니다.
 
+### 2차 검증: 동시 쓰기, Redis 장애, 자동 스케일 중 연결 (2026-11-18)
+
+digest를 고정한 이미지와 아래 수정이 들어간 최종 이미지로 다시 확인했습니다. 위 HTTP 5개·라이브 6개 확인도 이 이미지에서 다시 모두 통과했습니다.
+
+| 항목 | 결과 |
+| --- | --- |
+| 동시 댓글(H2 TCP) | 같은 방송에 댓글 20개를 동시에 보내 두 인스턴스가 나눠 처리, 20개가 한 번씩 저장됨 |
+| 동시 승인 요청 | 같은 결제의 성공 주소를 10번 동시에(두 인스턴스로 나뉨) 보내도 후원은 한 번만 확정. 주문 3건 합계 3,000원 |
+| Redis 장애 중 | 로그인 없는 목록은 200. 로그인 세션을 읽는 요청은 약 2.0초 뒤 공통 오류 화면(500, 내부 예외 문구 없음). 새 시청 입장은 `SERVER_ERROR` 안내를 받고 연결 유지 |
+| Redis 복구 뒤 | 같은 로그인으로 두 인스턴스 모두 200(세션 유지). 다른 인스턴스 사이 Offer·Answer 전달이 다시 됨(구독 회복) |
+| 자동 스케일 중 세션·방송 | 오토스케일러로 2→3→4→5→4→3→2(k6 부하 124,587 요청, 실패 0%). 3초마다 확인한 로그인 요청 105번 중 104번 200(5개 인스턴스 모두 거침), 방송은 105번 모두 목록에서 LIVE |
+| 스케일 인 중 라이브 연결 | 5개로 늘었을 때 새로 생긴 인스턴스에 시청자 3명을 붙임. 그 인스턴스가 내려가자 3명 모두 `reconnect`·1012를 받고 1~3초 안에 남은 인스턴스로 다시 입장, 송출자에게서 새 Offer를 받음. 종료(`end`) 안내는 시청자 4명 모두에게 도착 |
+
+- **찾아서 고친 문제**: 인스턴스 사이로 넘긴 메시지의 순서가 바뀌어, 스케일 인을 거친 방송을 끝낼 때 한 시청자가 종료 안내(`ended`) 없이 연결만 닫혔습니다. 중계 메시지를 한 스레드에서 받은 순서대로 전달하도록 고쳤습니다(`docs/autoscale.md` 3.2절, `RedisLiveMessageRelayOrderTests`).
+- **남은 한계**: 스케일 인으로 인스턴스가 빠진 직후 약 2초 동안, nginx가 아직 DNS 목록에 남은 그 주소로 보낸 요청이 연결 대기(2초) 뒤 502로 끝날 수 있습니다(nginx 로그 `no live upstreams`). 위 확인에서는 스케일 인 한 번마다 1~2건(로그인 요청 1건, WebSocket 다시 연결 1건)이었습니다. 라이브 화면은 다시 시도해 회복했고, 일반 화면은 새로고침해야 합니다. nginx `max_fails=0`으로 바꿔 한 번 더 돌려 봤지만 같은 502가 나와 원래 설정으로 되돌렸습니다. 내리기 전에 부하 분산기에서 먼저 빼는 처리는 이번 범위에 넣지 않았습니다.
+- k6 부하는 스케일 인 전에 끝나므로 k6 실패 0%에는 스케일 인 순간이 들어 있지 않습니다. 위 502는 따로 돌린 확인 스크립트가 잡았습니다.
+- 다른 Docker 프로젝트의 컨테이너(시작·종료 시각 포함)·볼륨·사용자 네트워크·이미지는 검증 전후 목록이 같았습니다. Docker 기본 `bridge` 네트워크의 ID만 바뀌었는데, 검증 중 Docker Desktop VM이 다시 시작됐기 때문입니다(재시작 명령은 실행하지 않음, 그때 실행 중이던 다른 컨테이너 없음).
+- 전체 로그는 [docs/autoscale-run-2026-11-18.txt](docs/autoscale-run-2026-11-18.txt) 뒤쪽 "2차 검증"에 있습니다.
+
 ### 정리(종료)
 
 ```powershell
@@ -468,6 +494,7 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 
 - 로컬 Docker Compose 전용입니다. Kubernetes HPA, 클라우드 배포는 하지 않습니다.
 - 공용 저장소(H2 TCP 서버, Redis)는 각각 컨테이너 하나이며 이중화·백업은 범위 밖입니다.
+- 인스턴스 사이 시그널링 중계는 Redis Pub/Sub라 메시지를 저장하거나 다시 보내지 않습니다. 받는 인스턴스가 내려가는 중이거나 Redis가 멈춘 순간의 메시지는 사라질 수 있고, 화면의 다시 연결·재입장(`resume`, `watch`)으로 회복합니다. Redis가 멈추면 메모리로 대신하지 않고 실패합니다(로그인 필요한 요청은 2초 안에 공통 오류 화면, 시그널링은 `SERVER_ERROR` 안내). 자세한 동작은 `docs/autoscale.md` 3.2절입니다.
 - 클러스터는 `127.0.0.1`의 HTTP로만 엽니다. 휴대폰 송출은 HTTPS가 필요하므로 클러스터에서 확인하지 않았습니다(**NOT_TESTED**). 휴대폰 송출은 Stage 2의 `https` 프로파일 단일 서버로 합니다.
 - 실제 카메라 영상이 오가는 WebRTC 연결은 클러스터에서 확인하지 않았습니다(**NOT_TESTED**). 시그널링 메시지 전달과 다시 연결만 확인했습니다.
 - 실제 토스페이먼츠 테스트 서버 호출은 하지 않았습니다(**NOT_TESTED**).
@@ -603,17 +630,17 @@ chzzk_project/
 - 따라서 테스트를 실행해도 개발용 H2 파일 DB와 업로드 폴더는 바뀌지 않습니다.
 - `H2SchemaConnectionRetirementTests`만 다른 테스트와 겹치지 않는 인메모리 DB(`jdbc:h2:mem:h2-schema-retirement-regression`)를 따로 씁니다. 커넥션 풀의 연결을 강제로 교체하기 때문입니다.
 - 라이브 시그널링은 실제 서버를 띄워 WebSocket 클라이언트로 검증합니다(메시지 전달·검증·방송 간 격리·연결 종료). 실제 카메라와 WebRTC 영상 연결은 자동 테스트로 확인하지 않으므로 위 "송출·시청 확인 절차"로 직접 확인합니다.
-- Stage 5에서 공용 저장소 규칙 테스트를 더했습니다. 라이브 방 등록부(`LiveRoomStoreContract`: 입장·정원·동시 입장·퇴장·송출자 교체·방 닫기)와 가짜 결제 장부(`FakePaymentLedgerContract`: 한 번만 승인·불일치·거절·동시 승인)는 같은 테스트를 메모리 구현과 Redis 구현에 모두 돌립니다. `LiveSignalingResumeServerTests`는 송출 이어 가기(`resume`)의 허용·거절과 인스턴스 종료 때의 `reconnect` 안내를 실제 서버로 확인합니다.
-- Redis 구현 테스트(`RedisLiveRoomStoreTests`, `RedisFakePaymentLedgerTests`)는 Redis가 있어야 하므로 환경변수 `CHZZK_TEST_REDIS_PORT`를 지정했을 때만 실행되고, 지정하지 않으면 건너뜁니다. 실행 방법:
+- Stage 5에서 공용 저장소 규칙 테스트를 더했습니다. 라이브 방 등록부(`LiveRoomStoreContract`: 입장·정원·동시 입장·퇴장·송출자 교체·방 닫기)와 가짜 결제 장부(`FakePaymentLedgerContract`: 한 번만 승인·불일치·거절·동시 승인)는 같은 테스트를 메모리 구현과 Redis 구현에 모두 돌립니다. `LiveSignalingResumeServerTests`는 송출 이어 가기(`resume`)의 허용·거절과 인스턴스 종료 때의 `reconnect` 안내를 실제 서버로 확인합니다. `RedisLiveMessageRelayOrderTests`(Redis 필요)는 다른 인스턴스로 넘긴 메시지와 연결 닫기가 보낸 순서대로 전달되는지 확인합니다. `RedisOutageTests`는 Redis에 닿지 못할 때 방 등록부·중계·가짜 결제 장부가 짐작한 값을 돌려주지 않고 곧바로 실패하는지 Redis 없이 확인합니다.
+- Redis 구현 테스트(`RedisLiveRoomStoreTests`, `RedisFakePaymentLedgerTests`, `RedisLiveMessageRelayOrderTests`)는 Redis가 있어야 하므로 환경변수 `CHZZK_TEST_REDIS_PORT`를 지정했을 때만 실행되고, 지정하지 않으면 건너뜁니다. 실행 방법:
 
   ```powershell
-  docker run --rm -d --name chzzk-test-redis -p 127.0.0.1:16379:6379 redis:7.4-alpine
+  docker run --rm -d --name chzzk-test-redis -p 127.0.0.1:16379:6379 redis:7.4-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
   $env:CHZZK_TEST_REDIS_PORT = "16379"
   .\gradlew.bat clean test
   docker stop chzzk-test-redis
   ```
 
-- Stage 5 기준 44개 테스트 클래스, 272개 테스트입니다. Redis 없이 실행하면 257개 통과·Redis 구현 15개 건너뜀(실패 0), `CHZZK_TEST_REDIS_PORT`를 지정하면 272개 모두 통과(실패·건너뜀 0)합니다(2026-11-18 확인).
+- Stage 5 기준 46개 테스트 클래스, 276개 테스트입니다. Redis 없이 실행하면 260개 통과·Redis 구현 16개 건너뜀(실패 0), `CHZZK_TEST_REDIS_PORT`를 지정하면 276개 모두 통과(실패·건너뜀 0)합니다(2026-11-18 확인).
 - Stage 4 기준 39개 테스트 클래스, 239개 테스트가 통과했습니다(실패·건너뜀 0). Stage 4 도네이션 테스트는 [Stage 4 검증 결과](#stage-4-검증-결과-2026-11-18)에 정리했습니다. 결제 서비스는 가짜 게이트웨이와 네트워크 없는 가짜 HTTP 서버만 쓰며 외부로 나가는 요청이 없습니다.
 - Stage 3 기준 34개 테스트 클래스, 199개 테스트가 통과했습니다(실패·건너뜀 0). Stage 3에서 추가·변경한 주요 테스트는 다음과 같습니다.
   - `MemberAuthenticationTests`: 회원가입(BCrypt 저장·입력 검증·중복·CSRF), 로그인 성공·실패, 로그아웃과 세션 폐기, 헤더 로그인 상태
