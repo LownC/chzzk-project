@@ -36,3 +36,10 @@ app:
     heartbeat-timeout: 30s
     expiry-check-interval: 10s
     ice-servers: ${APP_LIVE_ICE_SERVERS:}
+  # 후원 결제(④). 기본 fake는 외부 결제 서비스를 호출하지 않는다. toss는 토스페이먼츠 테스트 키(test_)만 받는다.
+  payment:
+    gateway: ${APP_PAYMENT_GATEWAY:fake}
+    toss:
+      client-key: ${TOSS_CLIENT_KEY:}
+      secret-key: ${TOSS_SECRET_KEY:}
+      api-base-url: https://api.tosspayments.com
