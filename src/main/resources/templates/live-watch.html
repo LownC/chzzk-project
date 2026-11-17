@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title th:text="${broadcast.title} + ' - 치지직'">라이브 - 치지직</title>
+	<style>
+		.video-frame {
+			width: 100%;
+			max-width: 960px;
+			aspect-ratio: 16 / 9;
+			background: #000;
+		}
+
+		.video-frame video {
+			width: 100%;
+			height: 100%;
+			object-fit: contain;
+		}
+
+		.live-state {
+			font-weight: bold;
+		}
+
+		.live-error {
+			color: #c00;
+		}
+
+		.live-error[hidden],
+		.video-frame[hidden],
+		#unmute[hidden] {
+			display: none;
+		}
+	</style>
+</head>
+<body>
+<header th:replace="~{fragments/header :: header}"></header>
+<main id="live-viewer" th:attr="data-broadcast-id=${broadcast.id},data-ice-servers=${iceServers}">
+	<h1 th:text="${broadcast.title}"></h1>
+	<p class="live-state" th:text="${broadcast.liveNow} ? '방송 중' : '방송 종료'"></p>
+	<p>
+		시작
+		<time th:text="${#temporals.format(broadcast.startedAt, 'yyyy.MM.dd HH:mm')}"></time>
+	</p>
+	<th:block th:if="${broadcast.liveNow}">
+		<div class="video-frame">
+			<video id="live-video" autoplay="autoplay" playsinline="playsinline" muted="muted" controls="controls"></video>
+		</div>
+		<button id="unmute" type="button">소리 켜기</button>
+		<p class="live-status" aria-live="polite">송출자에게 연결하는 중입니다.</p>
+		<p class="live-error" role="alert" hidden="hidden"></p>
+	</th:block>
+	<p class="live-ended" th:unless="${broadcast.liveNow}">방송이 종료되었습니다.</p>
+	<p><a href="/broadcasts">방송 목록으로</a></p>
+</main>
+<script th:if="${broadcast.liveNow}" src="/js/live-viewer.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# 휴대폰 카메라용 개발 HTTPS. dev 프로파일과 함께 켠다: SPRING_PROFILES_ACTIVE=dev,https
+# 키스토어는 scripts/dev-https/new-dev-certificate.ps1로 저장소 밖에 만들고, 경로·비밀번호는 환경변수로만 넘긴다.
+server:
+  port: ${HTTPS_PORT:8443}
+  ssl:
+    enabled: true
+    key-store: ${DEV_SSL_KEY_STORE}
+    key-store-password: ${DEV_SSL_KEY_STORE_PASSWORD}
+    key-store-type: PKCS12
+    key-alias: chzzk-dev

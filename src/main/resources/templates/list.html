@@ -4,6 +4,27 @@
 	<meta charset="UTF-8"/>
 	<meta name="viewport" content="width=device-width, initial-scale=1"/>
 	<title>방송 목록 - 치지직</title>
+	<style>
+		.badge {
+			display: inline-block;
+			margin-left: 0.25rem;
+			padding: 0 0.4rem;
+			border-radius: 0.25rem;
+			font-size: 0.8rem;
+		}
+
+		.badge.live {
+			background: #e00;
+			color: #fff;
+			font-weight: bold;
+		}
+
+		.badge.ended,
+		.badge.recorded {
+			background: #ddd;
+			color: #333;
+		}
+	</style>
 </head>
 <body>
 <header th:replace="~{fragments/header :: header}"></header>
@@ -17,6 +38,9 @@
 		<li th:each="broadcast : ${broadcasts}">
 			<a th:href="@{/broadcasts/{id}(id=${broadcast.id})}" th:text="${broadcast.title}"></a>
 			<time th:text="${#temporals.format(broadcast.createdAt, 'yyyy.MM.dd HH:mm')}"></time>
+			<span class="badge live" th:if="${broadcast.liveNow}">LIVE</span>
+			<span class="badge ended" th:if="${broadcast.type.name() == 'LIVE' and !broadcast.liveNow}">종료</span>
+			<span class="badge recorded" th:if="${broadcast.type.name() == 'RECORDED'}">녹화</span>
 		</li>
 	</ul>
 	<nav class="pagination" th:unless="${noBroadcasts}">

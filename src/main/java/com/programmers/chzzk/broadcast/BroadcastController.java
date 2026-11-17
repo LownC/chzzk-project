@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.programmers.chzzk.live.LiveProperties;
+
 @Controller
 public class BroadcastController {
 
@@ -26,9 +28,11 @@ public class BroadcastController {
 	private static final Sort LIST_SORT = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
 	private final BroadcastService broadcastService;
+	private final LiveProperties liveProperties;
 
-	public BroadcastController(BroadcastService broadcastService) {
+	public BroadcastController(BroadcastService broadcastService, LiveProperties liveProperties) {
 		this.broadcastService = broadcastService;
+		this.liveProperties = liveProperties;
 	}
 
 	@GetMapping("/")
@@ -54,6 +58,7 @@ public class BroadcastController {
 
 	/**
 	 * 숫자가 아님, Long 범위 초과, 0 이하, 없는 ID는 모두 방송 없음(404)이다.
+	 * 라이브 방송은 영상 파일 대신 실시간 시청 화면(방송 중) 또는 종료 안내를 보여 준다.
 	 */
 	@GetMapping("/broadcasts/{id}")
 	public String detail(@PathVariable String id, Model model) {
@@ -61,6 +66,10 @@ public class BroadcastController {
 			.flatMap(broadcastService::findBroadcast)
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
 		model.addAttribute("broadcast", broadcast);
+		if (broadcast.getType() == BroadcastType.LIVE) {
+			model.addAttribute("iceServers", String.join(",", liveProperties.iceServers()));
+			return "live-watch";
+		}
 		return "detail";
 	}
 
