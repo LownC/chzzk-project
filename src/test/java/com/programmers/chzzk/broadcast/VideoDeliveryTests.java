@@ -108,12 +108,16 @@ class VideoDeliveryTests {
 			.andExpect(status().isNotFound());
 	}
 
+	/**
+	 * ③부터 Spring Security의 요청 방화벽이 정규화되지 않은 경로(..)를 MVC보다 먼저 400으로 거절한다.
+	 * 이전에는 영상 리졸버가 404로 거절했다. 어느 쪽이든 영상은 내려가지 않는다.
+	 */
 	@Test
-	void pathWithParentSegmentIsNotFound() throws Exception {
+	void pathWithParentSegmentIsRejected() throws Exception {
 		writeUploadFile(VIDEO_FILE_NAME);
 
 		mockMvc.perform(get("/videos/sub/../" + VIDEO_FILE_NAME))
-			.andExpect(status().isNotFound());
+			.andExpect(status().isBadRequest());
 	}
 
 	private static void writeUploadFile(String relativePath) throws IOException {

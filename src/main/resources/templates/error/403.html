@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>권한 없음 - 치지직</title>
+</head>
+<body>
+<header th:replace="~{fragments/header :: header}"></header>
+<main>
+	<p>이 작업을 할 권한이 없습니다. 방송은 소유자만, 댓글은 작성자만 수정·삭제할 수 있습니다.</p>
+	<a href="/broadcasts">방송 목록으로 이동</a>
+</main>
+</body>
+</html>

@@ -11,9 +11,16 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
+
+import com.programmers.chzzk.comment.CommentRepository;
+import com.programmers.chzzk.global.exception.NotFoundException;
+import com.programmers.chzzk.member.MemberRepository;
 
 @Service
 public class BroadcastService {
@@ -27,10 +34,18 @@ public class BroadcastService {
 
 	private final BroadcastRepository broadcastRepository;
 	private final VideoFileStorage videoFileStorage;
+	private final MemberRepository memberRepository;
+	private final CommentRepository commentRepository;
+	private final TransactionTemplate transactionTemplate;
 
-	public BroadcastService(BroadcastRepository broadcastRepository, VideoFileStorage videoFileStorage) {
+	public BroadcastService(BroadcastRepository broadcastRepository, VideoFileStorage videoFileStorage,
+		MemberRepository memberRepository, CommentRepository commentRepository,
+		PlatformTransactionManager transactionManager) {
 		this.broadcastRepository = broadcastRepository;
 		this.videoFileStorage = videoFileStorage;
+		this.memberRepository = memberRepository;
+		this.commentRepository = commentRepository;
+		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
 	/**
@@ -50,20 +65,74 @@ public class BroadcastService {
 	}
 
 	/**
-	 * 방송을 등록한다. 트랜잭션을 걸지 않아 저장 호출이 커밋까지 끝낸 뒤 돌아온다.
+	 * 로그인한 회원을 소유자로 방송을 등록한다. 트랜잭션을 걸지 않아 저장 호출이 커밋까지 끝낸 뒤 돌아온다.
 	 */
-	public Long register(String title, MultipartFile videoFile) {
+	public Long register(String title, MultipartFile videoFile, long ownerId) {
 		validate(title, videoFile);
 		String videoFileName = storeVideoFile(videoFile);
 		Broadcast broadcast;
 		try {
-			broadcast = broadcastRepository.save(new Broadcast(title.strip(), videoFileName));
+			broadcast = broadcastRepository.save(
+				new Broadcast(title.strip(), videoFileName, memberRepository.getReferenceById(ownerId)));
 		} catch (RuntimeException databaseFailure) {
 			deleteStoredVideoFile(videoFileName, databaseFailure);
 			throw databaseFailure;
 		}
-		log.info("방송 등록: broadcastId={}, videoFileName={}", broadcast.getId(), videoFileName);
+		log.info("방송 등록: broadcastId={}, ownerId={}, videoFileName={}", broadcast.getId(), ownerId, videoFileName);
 		return broadcast.getId();
+	}
+
+	/**
+	 * 수정 화면을 보여 줄 방송. 소유자가 아니면 {@link AccessDeniedException}이다.
+	 */
+	@Transactional(readOnly = true)
+	public Broadcast findOwnBroadcast(long id, long memberId) {
+		return requireOwner(findExisting(id), memberId);
+	}
+
+	/**
+	 * 소유자만 제목을 바꿀 수 있다. 제목 규칙은 등록과 같다.
+	 */
+	@Transactional
+	public void changeTitle(long id, long memberId, String title) {
+		Broadcast broadcast = requireOwner(findExisting(id), memberId);
+		broadcast.changeTitle(validateTitle(title));
+		log.info("방송 제목 수정: broadcastId={}, memberId={}", id, memberId);
+	}
+
+	/**
+	 * 소유자만 삭제할 수 있다. 방송 중인 라이브는 먼저 종료해야 한다. 방송의 댓글도 함께 지운다.
+	 * DB 삭제가 커밋된 뒤 녹화방송의 영상 파일을 지운다. 파일 삭제에 실패하면 방송은 이미 없으므로 기록만 남긴다.
+	 */
+	public void delete(long id, long memberId) {
+		String videoFileName = transactionTemplate.execute(status -> {
+			Broadcast broadcast = requireOwner(findExisting(id), memberId);
+			if (broadcast.isLiveNow()) {
+				throw new BroadcastStillLiveException();
+			}
+			int deletedComments = commentRepository.deleteByBroadcastId(id);
+			broadcastRepository.delete(broadcast);
+			log.info("방송 삭제: broadcastId={}, memberId={}, deletedComments={}", id, memberId, deletedComments);
+			return broadcast.getVideoFileName();
+		});
+		if (videoFileName != null) {
+			try {
+				videoFileStorage.delete(videoFileName);
+			} catch (IOException | RuntimeException e) {
+				log.error("삭제한 방송의 영상 파일 삭제 실패, 수동 정리 필요: videoFileName={}", videoFileName, e);
+			}
+		}
+	}
+
+	private Broadcast findExisting(long id) {
+		return broadcastRepository.findById(id).orElseThrow(() -> new NotFoundException("방송 없음: id=" + id));
+	}
+
+	private static Broadcast requireOwner(Broadcast broadcast, long memberId) {
+		if (!broadcast.isOwnedBy(memberId)) {
+			throw new AccessDeniedException("방송 소유자가 아님: broadcastId=" + broadcast.getId() + ", memberId=" + memberId);
+		}
+		return broadcast;
 	}
 
 	/**
@@ -90,13 +159,22 @@ public class BroadcastService {
 		}
 	}
 
-	private static void validate(String title, MultipartFile videoFile) {
+	/**
+	 * 제목은 필수이고 앞뒤 공백을 뺀 길이가 최대 100자다. 공백을 뺀 제목을 돌려준다.
+	 */
+	static String validateTitle(String title) {
 		if (title == null || title.isBlank()) {
 			throw new BroadcastRegistrationException(BroadcastRegistrationError.TITLE_REQUIRED);
 		}
-		if (title.strip().length() > MAX_TITLE_LENGTH) {
+		String stripped = title.strip();
+		if (stripped.length() > MAX_TITLE_LENGTH) {
 			throw new BroadcastRegistrationException(BroadcastRegistrationError.TITLE_TOO_LONG);
 		}
+		return stripped;
+	}
+
+	private static void validate(String title, MultipartFile videoFile) {
+		validateTitle(title);
 		String originalFilename = videoFile == null ? null : videoFile.getOriginalFilename();
 		if (originalFilename == null || originalFilename.isBlank()) {
 			throw new BroadcastRegistrationException(BroadcastRegistrationError.VIDEO_FILE_REQUIRED);

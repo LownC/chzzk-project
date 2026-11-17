@@ -19,6 +19,15 @@ spring:
         jdbc:
           time_zone: Asia/Seoul
 
+# 로그인 세션(③). 30분 동안 요청이 없으면 세션이 만료되어 다시 로그인해야 한다.
+server:
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        http-only: true
+        same-site: lax
+
 app:
   file:
     upload-dir: ${APP_UPLOAD_DIR:C:/Users/Wonseok/Desktop/Dev/programmers/chzzk_project/chzzk_uploads/broadcasts}

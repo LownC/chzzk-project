@@ -8,10 +8,14 @@ import java.time.LocalDateTime;
 
 import org.junit.jupiter.api.Test;
 
+import com.programmers.chzzk.member.Member;
+
 /**
  * 라이브 방송 상태 전이 규칙(docs/live-streaming.md 3절)을 도메인 객체만으로 확인한다.
  */
 class BroadcastTests {
+
+	private static final Member OWNER = new Member("owner", "unused-password-hash");
 
 	private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 18, 20, 0, 0);
 	private static final Duration TIMEOUT = Duration.ofSeconds(30);
@@ -27,7 +31,7 @@ class BroadcastTests {
 
 	@Test
 	void startedLiveBroadcastIsLiveWithoutVideoFile() {
-		Broadcast live = Broadcast.startLive("라이브 방송", NOW);
+		Broadcast live = Broadcast.startLive("라이브 방송", OWNER, NOW);
 
 		assertThat(live.getType()).isEqualTo(BroadcastType.LIVE);
 		assertThat(live.getLiveStatus()).isEqualTo(LiveStatus.LIVE);
@@ -40,7 +44,7 @@ class BroadcastTests {
 
 	@Test
 	void heartbeatExtendsLiveBroadcast() {
-		Broadcast live = Broadcast.startLive("라이브 방송", NOW);
+		Broadcast live = Broadcast.startLive("라이브 방송", OWNER, NOW);
 
 		live.recordHeartbeat(NOW.plusSeconds(10));
 
@@ -51,7 +55,7 @@ class BroadcastTests {
 
 	@Test
 	void endingLiveBroadcastHappensOnlyOnce() {
-		Broadcast live = Broadcast.startLive("라이브 방송", NOW);
+		Broadcast live = Broadcast.startLive("라이브 방송", OWNER, NOW);
 
 		assertThat(live.endLive(NOW.plusMinutes(5))).isTrue();
 		assertThat(live.endLive(NOW.plusMinutes(9))).isFalse();
@@ -63,7 +67,7 @@ class BroadcastTests {
 
 	@Test
 	void endedBroadcastRejectsHeartbeat() {
-		Broadcast live = Broadcast.startLive("라이브 방송", NOW);
+		Broadcast live = Broadcast.startLive("라이브 방송", OWNER, NOW);
 		live.endLive(NOW.plusMinutes(1));
 
 		assertThatThrownBy(() -> live.recordHeartbeat(NOW.plusMinutes(2)))
@@ -73,7 +77,7 @@ class BroadcastTests {
 
 	@Test
 	void endedBroadcastIsNeverConsideredExpiredAgain() {
-		Broadcast live = Broadcast.startLive("라이브 방송", NOW);
+		Broadcast live = Broadcast.startLive("라이브 방송", OWNER, NOW);
 		live.endLive(NOW.plusMinutes(1));
 
 		assertThat(live.isHeartbeatExpired(NOW.plusHours(1), TIMEOUT)).isFalse();

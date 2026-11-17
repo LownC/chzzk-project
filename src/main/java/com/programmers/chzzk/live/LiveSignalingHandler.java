@@ -2,10 +2,12 @@ package com.programmers.chzzk.live;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -16,6 +18,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import com.programmers.chzzk.broadcast.Broadcast;
 import com.programmers.chzzk.broadcast.BroadcastRegistrationException;
+import com.programmers.chzzk.member.LoginMember;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -106,12 +109,18 @@ public class LiveSignalingHandler extends TextWebSocketHandler {
 		}
 	}
 
+	/**
+	 * 방송 시작은 로그인한 회원만 할 수 있다. 핸드셰이크 때 HTTP 세션의 로그인 정보가 연결에 들어오며,
+	 * 시작한 회원이 방송 소유자가 된다. 시청(watch)은 로그인 없이도 된다.
+	 */
 	private void start(WebSocketSession session, JsonNode request) {
 		requireNoRole(session);
+		LoginMember loginMember = loginMemberOf(session)
+			.orElseThrow(() -> new SignalingException(SignalingError.UNAUTHENTICATED));
 		JsonNode title = request.path("title");
 		Broadcast broadcast;
 		try {
-			broadcast = liveBroadcastService.start(title.isString() ? title.stringValue() : null);
+			broadcast = liveBroadcastService.start(title.isString() ? title.stringValue() : null, loginMember.getId());
 		} catch (BroadcastRegistrationException e) {
 			throw new SignalingException(SignalingError.INVALID_TITLE, e.getError().message());
 		}
@@ -310,6 +319,14 @@ public class LiveSignalingHandler extends TextWebSocketHandler {
 		}
 	}
 
+	private static Optional<LoginMember> loginMemberOf(WebSocketSession session) {
+		if (session.getPrincipal() instanceof Authentication authentication
+			&& authentication.getPrincipal() instanceof LoginMember loginMember) {
+			return Optional.of(loginMember);
+		}
+		return Optional.empty();
+	}
+
 	private static long broadcastIdOf(WebSocketSession session) {
 		return (Long)session.getAttributes().get(BROADCAST_ID);
 	}
@@ -348,6 +365,7 @@ public class LiveSignalingHandler extends TextWebSocketHandler {
 
 	private enum SignalingError {
 		INVALID_MESSAGE("메시지 형식이 올바르지 않습니다."),
+		UNAUTHENTICATED("로그인한 회원만 방송을 시작할 수 있습니다. 로그인한 뒤 다시 시도해 주세요."),
 		INVALID_TITLE("제목을 확인해 주세요."),
 		INVALID_ROLE("지금 보낼 수 없는 메시지입니다."),
 		NOT_FOUND("방송을 찾을 수 없습니다."),

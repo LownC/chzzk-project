@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -30,7 +32,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.ResultActions;
+
+import com.programmers.chzzk.TestMembers;
+import com.programmers.chzzk.member.MemberRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -51,6 +57,13 @@ class BroadcastRegistrationTests {
 	private MockMvc mockMvc;
 
 	@Autowired
+	private MemberRepository memberRepository;
+
+	private RequestPostProcessor loggedIn() {
+		return user(TestMembers.loginMember(TestMembers.save(memberRepository, "uploader")));
+	}
+
+	@Autowired
 	private BroadcastRepository broadcastRepository;
 
 	@BeforeEach
@@ -63,7 +76,7 @@ class BroadcastRegistrationTests {
 
 	@Test
 	void registrationPageHasMultipartForm() throws Exception {
-		mockMvc.perform(get("/broadcasts/new"))
+		mockMvc.perform(get("/broadcasts/new").with(loggedIn()))
 			.andExpect(status().isOk())
 			.andExpect(xpath("//form[@method='post'][@action='/broadcasts'][@enctype='multipart/form-data']").exists())
 			.andExpect(xpath("//form//input[@name='title']").exists())
@@ -74,7 +87,7 @@ class BroadcastRegistrationTests {
 
 	@Test
 	void registrationPageHasUploadProgressErrorAreaAndUploadScript() throws Exception {
-		mockMvc.perform(get("/broadcasts/new"))
+		mockMvc.perform(get("/broadcasts/new").with(loggedIn()))
 			.andExpect(status().isOk())
 			.andExpect(xpath("//main//progress[@max='100']").exists())
 			.andExpect(xpath("//main//*[@class='upload-percent']").string("0%"))
@@ -96,7 +109,7 @@ class BroadcastRegistrationTests {
 
 	@Test
 	void xhrRegistrationReturnsCreatedJsonAndStoresBroadcastWithVideoFile() throws Exception {
-		ResultActions response = mockMvc.perform(multipart("/broadcasts")
+		ResultActions response = mockMvc.perform(multipart("/broadcasts").with(loggedIn()).with(csrf())
 				.file(mp4File("video.mp4"))
 				.param("title", "  첫 방송  ")
 				.header("X-Requested-With", "XMLHttpRequest"))
@@ -122,7 +135,7 @@ class BroadcastRegistrationTests {
 
 	@Test
 	void formRegistrationRedirectsToDetailPage() throws Exception {
-		ResultActions response = mockMvc.perform(multipart("/broadcasts")
+		ResultActions response = mockMvc.perform(multipart("/broadcasts").with(loggedIn()).with(csrf())
 				.file(mp4File("video.mp4"))
 				.param("title", "폼 방송"))
 			.andExpect(status().isFound());
@@ -152,7 +165,7 @@ class BroadcastRegistrationTests {
 
 	@Test
 	void uppercaseMp4ExtensionIsAccepted() throws Exception {
-		mockMvc.perform(multipart("/broadcasts")
+		mockMvc.perform(multipart("/broadcasts").with(loggedIn()).with(csrf())
 				.file(mp4File("VIDEO.MP4"))
 				.param("title", "대문자 확장자")
 				.header("X-Requested-With", "XMLHttpRequest"))
@@ -164,7 +177,7 @@ class BroadcastRegistrationTests {
 	}
 
 	private ResultActions registerByXhr(String title) throws Exception {
-		return mockMvc.perform(multipart("/broadcasts")
+		return mockMvc.perform(multipart("/broadcasts").with(loggedIn()).with(csrf())
 			.file(mp4File("video.mp4"))
 			.param("title", title)
 			.header("X-Requested-With", "XMLHttpRequest"));

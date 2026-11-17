@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>방송 수정 - 치지직</title>
+</head>
+<body>
+<header th:replace="~{fragments/header :: header}"></header>
+<main>
+	<h1>방송 제목 수정</h1>
+	<p class="error-message" role="alert" th:text="${errorMessage}"></p>
+	<form th:action="@{/broadcasts/{id}/edit(id=${broadcast.id})}" method="post">
+		<p>
+			<label for="title">제목</label>
+			<input id="title" type="text" name="title" th:value="${title}" maxlength="100"/>
+		</p>
+		<button type="submit">저장</button>
+		<a th:href="@{/broadcasts/{id}(id=${broadcast.id})}">취소</a>
+	</form>
+</main>
+</body>
+</html>
