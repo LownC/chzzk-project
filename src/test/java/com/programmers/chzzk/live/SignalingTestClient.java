@@ -82,6 +82,18 @@ final class SignalingTestClient extends TextWebSocketHandler implements AutoClos
 		return message;
 	}
 
+	/**
+	 * 다른 종류의 메시지는 건너뛰고 기다리는 종류의 메시지를 꺼낸다(도착 순서가 정해지지 않은 경우).
+	 */
+	JsonNode nextSkipping(String expectedType) throws InterruptedException {
+		for (;;) {
+			JsonNode message = next();
+			if (message.path("type").asString().equals(expectedType)) {
+				return message;
+			}
+		}
+	}
+
 	void expectError(String expectedCode) throws InterruptedException {
 		JsonNode error = next("error");
 		assertThat(error.path("code").asString()).isEqualTo(expectedCode);

@@ -18,7 +18,7 @@ class PaymentConfigTests {
 
 	@Test
 	void defaultIsFakeGateway() {
-		PaymentGateway gateway = config.paymentGateway(new PaymentProperties(null, null), jsonMapper);
+		PaymentGateway gateway = config.create(new PaymentProperties(null, null), jsonMapper);
 
 		assertThat(gateway).isInstanceOf(FakePaymentGateway.class);
 		assertThat(gateway.name()).isEqualTo("fake");
@@ -26,27 +26,27 @@ class PaymentConfigTests {
 
 	@Test
 	void tossGatewayAcceptsOnlyTestKeys() {
-		PaymentGateway gateway = config.paymentGateway(new PaymentProperties("toss",
+		PaymentGateway gateway = config.create(new PaymentProperties("toss",
 			new PaymentProperties.Toss("test_ck_dummy", "test_sk_dummy", null)), jsonMapper);
 		assertThat(gateway).isInstanceOf(TossPaymentsGateway.class);
 
-		assertThatThrownBy(() -> config.paymentGateway(new PaymentProperties("toss",
+		assertThatThrownBy(() -> config.create(new PaymentProperties("toss",
 			new PaymentProperties.Toss("live_ck_dummy", "test_sk_dummy", null)), jsonMapper))
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessageContaining("TOSS_CLIENT_KEY")
 			.hasMessageNotContaining("live_ck_dummy");
-		assertThatThrownBy(() -> config.paymentGateway(new PaymentProperties("toss",
+		assertThatThrownBy(() -> config.create(new PaymentProperties("toss",
 			new PaymentProperties.Toss("test_ck_dummy", "live_sk_dummy", null)), jsonMapper))
 			.hasMessageContaining("TOSS_SECRET_KEY")
 			.hasMessageNotContaining("live_sk_dummy");
-		assertThatThrownBy(() -> config.paymentGateway(new PaymentProperties("toss",
+		assertThatThrownBy(() -> config.create(new PaymentProperties("toss",
 			new PaymentProperties.Toss("", "", null)), jsonMapper))
 			.isInstanceOf(IllegalStateException.class);
 	}
 
 	@Test
 	void unknownGatewayIsRejectedAndKeysAreMaskedInToString() {
-		assertThatThrownBy(() -> config.paymentGateway(new PaymentProperties("paypal", null), jsonMapper))
+		assertThatThrownBy(() -> config.create(new PaymentProperties("paypal", null), jsonMapper))
 			.isInstanceOf(IllegalStateException.class);
 		assertThat(new PaymentProperties.Toss("test_ck_dummy", "test_sk_dummy", null).toString())
 			.doesNotContain("test_ck_dummy", "test_sk_dummy")
