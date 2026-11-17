@@ -21,6 +21,39 @@
 	</th:block>
 </section>
 
+<section id="donations" class="donations" th:fragment="donations">
+	<h2>후원</h2>
+	<p class="donation-summary">
+		합계 <strong class="donation-total" th:text="${#numbers.formatInteger(donationTotal, 1, 'COMMA')} + '원'">0원</strong>
+		(<span class="donation-count" th:text="${#lists.size(donations)}">0</span>건)
+	</p>
+	<p class="error-message" role="alert" th:if="${donationError}" th:text="${donationError}"></p>
+	<form class="donation-form" th:if="${loginMember != null and broadcast.owner != null and !isOwner}"
+		  th:action="@{/broadcasts/{id}/donations(id=${broadcast.id})}" method="post">
+		<p th:text="'받는 사람: ' + ${broadcast.owner.username}"></p>
+		<label for="donation-amount">금액(원)</label>
+		<input id="donation-amount" type="number" name="amount" min="1000" max="1000000" step="1" value="1000"
+			   required="required"/>
+		<label for="donation-message">메시지</label>
+		<input id="donation-message" type="text" name="message" maxlength="100"/>
+		<button type="submit">후원하기</button>
+		<small>테스트 결제만 사용합니다. 실제 돈은 나가지 않습니다.</small>
+	</form>
+	<p class="donation-login" th:if="${loginMember == null and broadcast.owner != null}">
+		후원하려면 <a href="/login">로그인</a>해 주세요.
+	</p>
+	<p class="donation-own" th:if="${isOwner}">내 방송에는 후원할 수 없습니다.</p>
+	<p class="donation-no-owner" th:if="${broadcast.owner == null}">방송자가 없는 방송에는 후원할 수 없습니다.</p>
+	<ul class="donation-list" th:unless="${#lists.isEmpty(donations)}">
+		<li th:each="donation : ${donations}">
+			<strong class="donation-donor" th:text="${donation.donor.username}"></strong>
+			<span class="donation-amount" th:text="${#numbers.formatInteger(donation.amount, 1, 'COMMA')} + '원'"></span>
+			<time th:text="${#temporals.format(donation.approvedAt, 'yyyy.MM.dd HH:mm')}"></time>
+			<p class="donation-message" th:if="${donation.message}" th:text="${donation.message}"></p>
+		</li>
+	</ul>
+</section>
+
 <section id="comments" class="comments" th:fragment="comments">
 	<h2>댓글 <span th:text="${#lists.size(comments)}">0</span>개</h2>
 	<p class="error-message" role="alert" th:if="${commentError}" th:text="${commentError}"></p>
