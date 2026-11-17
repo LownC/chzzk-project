@@ -20,9 +20,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+
+import com.programmers.chzzk.TestHttpLogin;
+import com.programmers.chzzk.TestMembers;
+import com.programmers.chzzk.member.MemberRepository;
 
 /**
  * 실제 Tomcat의 multipart 해석 단계에서 거부되는 요청을 검증한다(S2-1, S2-3).
@@ -55,11 +60,24 @@ class MultipartParsingFailureServerTests {
 	@Autowired
 	private BroadcastRepository broadcastRepository;
 
+	@Autowired
+	private MemberRepository memberRepository;
+
+	@Autowired
+	private PasswordEncoder passwordEncoder;
+
+	private String sessionCookie;
+
+	private String csrfToken;
+
 	private final HttpClient httpClient = HttpClient.newHttpClient();
 
 	@BeforeEach
-	void clearBroadcasts() {
+	void clearBroadcastsAndLogIn() throws Exception {
 		broadcastRepository.deleteAll();
+		TestMembers.saveWithPassword(memberRepository, passwordEncoder, "multipart_owner");
+		sessionCookie = TestHttpLogin.login(port, "multipart_owner", TestMembers.PASSWORD);
+		csrfToken = TestHttpLogin.csrfTokenFromRegistrationPage(port, sessionCookie);
 	}
 
 	@AfterEach
@@ -114,6 +132,8 @@ class MultipartParsingFailureServerTests {
 	private HttpResponse<String> post(byte[] body, boolean xhr) throws Exception {
 		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/broadcasts"))
 			.header("Content-Type", "multipart/form-data; boundary=" + BOUNDARY)
+			.header("Cookie", sessionCookie)
+			.header("X-CSRF-TOKEN", csrfToken)
 			.POST(HttpRequest.BodyPublishers.ofByteArray(body));
 		if (xhr) {
 			request.header("X-Requested-With", "XMLHttpRequest");

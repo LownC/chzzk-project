@@ -6,6 +6,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -57,6 +58,22 @@ public class GlobalExceptionHandler {
 		log.warn("잘못된 multipart 요청 거부", exception);
 		return registrationErrorResponse(request, HttpStatus.BAD_REQUEST,
 			BroadcastRegistrationError.REGISTRATION_FAILED.message(), null);
+	}
+
+	@ExceptionHandler(NotFoundException.class)
+	public ModelAndView handleNotFound(NotFoundException exception, HttpServletRequest request) {
+		log.debug("대상 없음: method={}, uri={}, reason={}", request.getMethod(), request.getRequestURI(),
+			exception.getMessage());
+		return new ModelAndView("error/404", HttpStatus.NOT_FOUND);
+	}
+
+	/**
+	 * 로그인은 했지만 방송 소유자·댓글 작성자가 아닌 요청. 서비스가 회원 ID로 검사해 던진다.
+	 */
+	@ExceptionHandler(AccessDeniedException.class)
+	public ModelAndView handleAccessDenied(AccessDeniedException exception, HttpServletRequest request) {
+		log.info("권한 없는 요청 거부: method={}, uri={}", request.getMethod(), request.getRequestURI());
+		return new ModelAndView("error/403", HttpStatus.FORBIDDEN);
 	}
 
 	/**

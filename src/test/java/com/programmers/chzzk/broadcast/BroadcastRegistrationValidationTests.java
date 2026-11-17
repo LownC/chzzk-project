@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -29,7 +31,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.ResultActions;
+
+import com.programmers.chzzk.TestMembers;
+import com.programmers.chzzk.member.MemberRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -48,6 +54,13 @@ class BroadcastRegistrationValidationTests {
 
 	@Autowired
 	private MockMvc mockMvc;
+
+	@Autowired
+	private MemberRepository memberRepository;
+
+	private RequestPostProcessor loggedIn() {
+		return user(TestMembers.loginMember(TestMembers.save(memberRepository, "uploader")));
+	}
 
 	@Autowired
 	private BroadcastRepository broadcastRepository;
@@ -84,7 +97,7 @@ class BroadcastRegistrationValidationTests {
 
 	@Test
 	void requestWithoutFilePartIsRejectedAsNoFileSelected() throws Exception {
-		mockMvc.perform(multipart("/broadcasts")
+		mockMvc.perform(multipart("/broadcasts").with(loggedIn()).with(csrf())
 				.param("title", "파일 없음")
 				.header("X-Requested-With", "XMLHttpRequest"))
 			.andExpect(status().isBadRequest())
@@ -114,7 +127,7 @@ class BroadcastRegistrationValidationTests {
 
 	@Test
 	void missingTitleIsRejectedOnRegistrationPageForForm() throws Exception {
-		mockMvc.perform(multipart("/broadcasts").file(mp4File("video.mp4")))
+		mockMvc.perform(multipart("/broadcasts").with(loggedIn()).with(csrf()).file(mp4File("video.mp4")))
 			.andExpect(status().isBadRequest())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
 			.andExpect(xpath("//form[@action='/broadcasts']").exists())
@@ -124,7 +137,7 @@ class BroadcastRegistrationValidationTests {
 
 	@Test
 	void formErrorKeepsSubmittedTitle() throws Exception {
-		mockMvc.perform(multipart("/broadcasts")
+		mockMvc.perform(multipart("/broadcasts").with(loggedIn()).with(csrf())
 				.file(new MockMultipartFile("videoFile", "clip.mov", "video/quicktime", VIDEO_CONTENT))
 				.param("title", "  유지될 제목 "))
 			.andExpect(status().isBadRequest())
@@ -139,7 +152,7 @@ class BroadcastRegistrationValidationTests {
 	}
 
 	private ResultActions registerByXhr(String title, MockMultipartFile videoFile) throws Exception {
-		return mockMvc.perform(multipart("/broadcasts")
+		return mockMvc.perform(multipart("/broadcasts").with(loggedIn()).with(csrf())
 			.file(videoFile)
 			.param("title", title)
 			.header("X-Requested-With", "XMLHttpRequest"));

@@ -4,9 +4,9 @@
 
 ## 프로젝트 개요
 
-- **목적**: Spring Boot 기반 녹화 방송 등록·시청과 휴대폰 라이브 송출·시청 서비스
-- **현재 구현 단계**: 2단계 — 인증·인가 없는 휴대폰 라이브 송출(1단계 녹화 방송 위에 추가). 검증 결과와 알려진 위험은 `docs/live-streaming.md`를 본다.
-- **기술 스택**: Java 25, Spring Boot 4.1.2, Gradle Kotlin DSL, Spring MVC, Spring WebSocket, Thymeleaf, 브라우저 WebRTC API, Spring Data JPA, H2(2.5.252 고정, README "H2 버전 고정")
+- **목적**: Spring Boot 기반 녹화 방송 등록·시청, 휴대폰 라이브 송출·시청, 회원 인증·인가와 댓글 서비스
+- **현재 구현 단계**: 3단계 — 인증·인가와 댓글(1·2단계 위에 추가). 정책과 검증 결과는 README "인증·인가 정책", "Stage 3 검증 결과"를, 라이브 변경은 `docs/live-streaming.md` 9절을 본다.
+- **기술 스택**: Java 25, Spring Boot 4.1.2, Gradle Kotlin DSL, Spring MVC, Spring WebSocket, Spring Security(세션 폼 로그인·BCrypt·CSRF), Thymeleaf, 브라우저 WebRTC API, Spring Data JPA, H2(2.5.252 고정, README "H2 버전 고정")
 - **기본 패키지**: `com.programmers.chzzk`
 - **빌드/테스트**: `./gradlew build`, `./gradlew test` (Windows: `gradlew.bat`)
 
@@ -49,7 +49,16 @@ Spring Boot 4.x는 3.x와 starter 이름과 테스트 모듈 구성이 다르다
 - 서로 다른 네트워크 간 WebRTC 연결은 실기기로 검증하지 않았다.
 - STUN/TURN 서버 URL은 `APP_LIVE_ICE_SERVERS`로 지정할 수 있지만 기본값은 비어 있고 TURN 인증 정보 설정은 없다. TURN 서버를 이용한 연결 보장은 현재 구현 범위에 포함되지 않는다.
 
-인증·인가, 댓글, 후원, 방송 수정·삭제, 썸네일, 라이브 녹화 저장 기능은 구현하지 않는다.
+### 3단계 — 인증·인가와 댓글
+
+- 회원가입·로그인·로그아웃(Spring Security 세션 방식, BCrypt, CSRF, 로그인 시 세션 ID 교체)
+- 방송 소유자 구분과 서버 권한 검사: 등록·송출은 로그인, 제목 수정·삭제·라이브 종료는 소유자만
+- 방송별 댓글 작성(로그인)·목록 조회(공개)·수정·삭제(작성자만)
+- 방송 목록·상세·영상 재생·라이브 시청·댓글 목록은 공개
+
+권한 검사는 화면 버튼이 아니라 서버(서비스·시그널링 처리기)에서 회원 ID로 한다. CSRF 보호를 끄거나 모든 경로를 공개로 바꿔 테스트를 통과시키지 않는다.
+
+후원, 썸네일, 라이브 녹화 저장, 회원정보 수정·탈퇴, 비밀번호 찾기, 관리자 권한, 실시간 댓글 기능은 구현하지 않는다.
 
 ## 작업 규칙
 
@@ -58,7 +67,7 @@ Spring Boot 4.x는 3.x와 starter 이름과 테스트 모듈 구성이 다르다
 - 한 번에 지나치게 많은 파일을 수정하지 않는다.
 - 기능 구현 후 관련 테스트를 실행한다.
 - 테스트 실패 시 원인을 분석하고 수정한다.
-- 사용자가 요청하지 않은 의존성을 추가하지 않는다.
+- 사용자가 요청하지 않은 의존성을 추가하지 않는다. (3단계에서 Spring Security와 그 테스트 의존성만 사용자 승인을 받아 추가했다.)
 - 환경 변수와 파일 경로를 임의로 변경하지 않는다.
 - 실제 영상 파일, H2 데이터베이스, 그 백업을 삭제하지 않는다.
 

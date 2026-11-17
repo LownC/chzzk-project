@@ -74,6 +74,12 @@
 		const xhr = new XMLHttpRequest();
 		xhr.open('POST', form.action);
 		xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+		// CSRF 토큰을 헤더로도 보내, 서버가 큰 multipart 본문을 읽기 전에 토큰을 확인할 수 있게 한다.
+		const csrfToken = document.querySelector('meta[name="_csrf"]');
+		const csrfHeader = document.querySelector('meta[name="_csrf_header"]');
+		if (csrfToken && csrfHeader) {
+			xhr.setRequestHeader(csrfHeader.content, csrfToken.content);
+		}
 		xhr.timeout = UPLOAD_TIMEOUT_MILLIS;
 
 		xhr.upload.addEventListener('progress', function (progress) {

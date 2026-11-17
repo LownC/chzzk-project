@@ -51,6 +51,8 @@
 		<p class="live-error" role="alert" hidden="hidden"></p>
 	</th:block>
 	<p class="live-ended" th:unless="${broadcast.liveNow}">방송이 종료되었습니다.</p>
+	<section th:replace="~{fragments/broadcast-extras :: manage}"></section>
+	<section th:replace="~{fragments/broadcast-extras :: comments}"></section>
 	<p><a href="/broadcasts">방송 목록으로</a></p>
 </main>
 <script th:if="${broadcast.liveNow}" src="/js/live-viewer.js"></script>

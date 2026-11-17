@@ -13,13 +13,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 
+import com.programmers.chzzk.TestMembers;
 import com.programmers.chzzk.broadcast.Broadcast;
 import com.programmers.chzzk.broadcast.BroadcastRepository;
 import com.programmers.chzzk.broadcast.LiveStatus;
+import com.programmers.chzzk.member.MemberRepository;
 
 import tools.jackson.databind.JsonNode;
 
@@ -43,11 +46,21 @@ class LiveSignalingServerTests {
 	@Autowired
 	private BroadcastRepository broadcastRepository;
 
+	@Autowired
+	private MemberRepository memberRepository;
+
+	@Autowired
+	private PasswordEncoder passwordEncoder;
+
+	private String sessionCookie;
+
 	private final java.util.List<SignalingTestClient> clients = new java.util.ArrayList<>();
 
 	@BeforeEach
-	void clearBroadcasts() {
+	void clearBroadcasts() throws Exception {
 		broadcastRepository.deleteAll();
+		TestMembers.saveWithPassword(memberRepository, passwordEncoder, "live_owner");
+		sessionCookie = SignalingTestClient.login(port, "live_owner", TestMembers.PASSWORD);
 	}
 
 	@AfterEach
@@ -316,6 +329,41 @@ class LiveSignalingServerTests {
 		assertThat(broadcastRepository.findById(broadcastId).orElseThrow().getLastHeartbeatAt()).isAfter(before);
 	}
 
+	/**
+	 * 송출 제어(방송 시작)는 서버가 연결의 로그인 정보로 검사한다. 화면 없이 WebSocket으로 직접 보내도 거절된다.
+	 */
+	@Test
+	void anonymousConnectionCannotStartBroadcast() throws Exception {
+		SignalingTestClient anonymous = SignalingTestClient.connect(port);
+		clients.add(anonymous);
+
+		anonymous.send("{\"type\":\"start\",\"title\":\"몰래 방송\"}");
+
+		anonymous.expectError("UNAUTHENTICATED");
+		assertThat(broadcastRepository.count()).isZero();
+	}
+
+	@Test
+	void startedBroadcastIsOwnedByLoggedInMember() throws Exception {
+		long broadcastId = start(connect(), "내 방송");
+
+		Broadcast saved = broadcastRepository.findById(broadcastId).orElseThrow();
+		assertThat(saved.isOwnedBy(memberRepository.findByUsername("live_owner").orElseThrow().getId())).isTrue();
+	}
+
+	@Test
+	void anonymousViewerCanWatch() throws Exception {
+		SignalingTestClient publisher = connect();
+		long broadcastId = start(publisher, "공개 시청");
+		SignalingTestClient anonymousViewer = SignalingTestClient.connect(port);
+		clients.add(anonymousViewer);
+
+		anonymousViewer.send("{\"type\":\"watch\",\"broadcastId\":" + broadcastId + "}");
+
+		anonymousViewer.next("watching");
+		publisher.next("viewer-joined");
+	}
+
 	@Test
 	void handshakeFromAnotherOriginIsRejected() {
 		WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
@@ -328,7 +376,7 @@ class LiveSignalingServerTests {
 	}
 
 	private SignalingTestClient connect() throws Exception {
-		SignalingTestClient client = SignalingTestClient.connect(port);
+		SignalingTestClient client = SignalingTestClient.connect(port, sessionCookie);
 		clients.add(client);
 		return client;
 	}

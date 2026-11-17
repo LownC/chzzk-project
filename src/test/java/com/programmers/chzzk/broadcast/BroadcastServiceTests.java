@@ -15,16 +15,22 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.multipart.MultipartFile;
+
+import com.programmers.chzzk.comment.CommentRepository;
+import com.programmers.chzzk.member.MemberRepository;
 
 class BroadcastServiceTests {
 
 	private static final byte[] VIDEO_CONTENT = "fake mp4 bytes".getBytes(StandardCharsets.UTF_8);
 	private static final long MAX_VIDEO_FILE_SIZE = 500L * 1024 * 1024;
+	private static final long OWNER_ID = 1L;
 
 	private final BroadcastRepository broadcastRepository = mock(BroadcastRepository.class);
 	private final VideoFileStorage videoFileStorage = mock(VideoFileStorage.class);
-	private final BroadcastService broadcastService = new BroadcastService(broadcastRepository, videoFileStorage);
+	private final BroadcastService broadcastService = new BroadcastService(broadcastRepository, videoFileStorage,
+		mock(MemberRepository.class), mock(CommentRepository.class), mock(PlatformTransactionManager.class));
 
 	@Test
 	void videoFileLargerThan500MbIsRejectedBeforeStoring() throws Exception {
@@ -57,7 +63,7 @@ class BroadcastServiceTests {
 		DataAccessResourceFailureException databaseFailure = new DataAccessResourceFailureException("db down");
 		when(broadcastRepository.save(any())).thenThrow(databaseFailure);
 
-		assertThatThrownBy(() -> broadcastService.register("제목", mp4File()))
+		assertThatThrownBy(() -> broadcastService.register("제목", mp4File(), OWNER_ID))
 			.isSameAs(databaseFailure);
 		verify(videoFileStorage).delete("stored.mp4");
 	}
@@ -70,7 +76,7 @@ class BroadcastServiceTests {
 		IOException deleteFailure = new IOException("file locked");
 		doThrow(deleteFailure).when(videoFileStorage).delete("stored.mp4");
 
-		assertThatThrownBy(() -> broadcastService.register("제목", mp4File()))
+		assertThatThrownBy(() -> broadcastService.register("제목", mp4File(), OWNER_ID))
 			.isSameAs(databaseFailure)
 			.satisfies(thrown -> assertThat(thrown.getSuppressed()).containsExactly(deleteFailure));
 	}
@@ -80,7 +86,7 @@ class BroadcastServiceTests {
 	}
 
 	private void assertRegistrationError(String title, MultipartFile videoFile, BroadcastRegistrationError expected) {
-		assertThatThrownBy(() -> broadcastService.register(title, videoFile))
+		assertThatThrownBy(() -> broadcastService.register(title, videoFile, OWNER_ID))
 			.isInstanceOfSatisfying(BroadcastRegistrationException.class,
 				exception -> assertThat(exception.getError()).isEqualTo(expected));
 	}

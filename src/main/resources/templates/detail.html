@@ -44,6 +44,8 @@
 			   th:src="@{/videos/{fileName}(fileName=${broadcast.videoFileName})}"></video>
 		<p class="video-error" hidden="hidden">영상을 재생할 수 없습니다.</p>
 	</div>
+	<section th:replace="~{fragments/broadcast-extras :: manage}"></section>
+	<section th:replace="~{fragments/broadcast-extras :: comments}"></section>
 </main>
 <script>
 	document.querySelector('.video-player video').addEventListener('error', function () {

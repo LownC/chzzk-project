@@ -27,7 +27,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import com.programmers.chzzk.TestMembers;
 import com.programmers.chzzk.live.LiveBroadcastService;
+import com.programmers.chzzk.member.MemberRepository;
 import com.zaxxer.hikari.HikariDataSource;
 
 /**
@@ -76,6 +78,13 @@ class H2SchemaConnectionRetirementTests {
 	@Autowired
 	private BroadcastRepository broadcastRepository;
 
+	@Autowired
+	private MemberRepository memberRepository;
+
+	private long ownerId() {
+		return TestMembers.save(memberRepository, "h2_owner").getId();
+	}
+
 	@BeforeEach
 	void retireSchemaCreatingConnectionOnce() throws Exception {
 		given(clock.getZone()).willReturn(ZONE);
@@ -83,15 +92,15 @@ class H2SchemaConnectionRetirementTests {
 		if (schemaConnectionRetired) {
 			return;
 		}
-		heartbeatTargetId = liveBroadcastService.start("heartbeat 대상").getId();
-		endTargetId = liveBroadcastService.start("종료 대상").getId();
+		heartbeatTargetId = liveBroadcastService.start("heartbeat 대상", ownerId()).getId();
+		endTargetId = liveBroadcastService.start("종료 대상", ownerId()).getId();
 		retireEveryConnectionOpenedSoFar();
 		schemaConnectionRetired = true;
 	}
 
 	@Test
 	void liveStartIsSavedAfterSchemaConnectionRetired() {
-		Long id = liveBroadcastService.start("교체 뒤 라이브").getId();
+		Long id = liveBroadcastService.start("교체 뒤 라이브", ownerId()).getId();
 
 		Broadcast found = broadcastRepository.findById(id).orElseThrow();
 		assertThat(found.getType()).isEqualTo(BroadcastType.LIVE);
@@ -126,7 +135,7 @@ class H2SchemaConnectionRetirementTests {
 		MockMultipartFile video = new MockMultipartFile("videoFile", "video.mp4", "video/mp4",
 			"fake mp4 bytes".getBytes(StandardCharsets.UTF_8));
 
-		Long id = broadcastService.register("교체 뒤 녹화방송", video);
+		Long id = broadcastService.register("교체 뒤 녹화방송", video, ownerId());
 
 		Broadcast found = broadcastRepository.findById(id).orElseThrow();
 		assertThat(found.getType()).isEqualTo(BroadcastType.RECORDED);

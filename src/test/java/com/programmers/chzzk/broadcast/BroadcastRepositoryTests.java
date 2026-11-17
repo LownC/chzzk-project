@@ -11,6 +11,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.programmers.chzzk.TestMembers;
+import com.programmers.chzzk.member.Member;
+import com.programmers.chzzk.member.MemberRepository;
+
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional
@@ -21,6 +25,13 @@ class BroadcastRepositoryTests {
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
+
+	@Autowired
+	private MemberRepository memberRepository;
+
+	private Member owner() {
+		return TestMembers.save(memberRepository, "repo_owner");
+	}
 
 	@Test
 	void savedBroadcastGetsCreatedAtAutomatically() {
@@ -53,7 +64,7 @@ class BroadcastRepositoryTests {
 	void liveBroadcastIsSavedWithoutVideoFile() {
 		LocalDateTime startedAt = LocalDateTime.of(2026, 11, 18, 20, 0);
 
-		Broadcast saved = broadcastRepository.saveAndFlush(Broadcast.startLive("라이브", startedAt));
+		Broadcast saved = broadcastRepository.saveAndFlush(Broadcast.startLive("라이브", owner(), startedAt));
 
 		Broadcast found = broadcastRepository.findById(saved.getId()).orElseThrow();
 		assertThat(found.getType()).isEqualTo(BroadcastType.LIVE);
@@ -65,9 +76,9 @@ class BroadcastRepositoryTests {
 	@Test
 	void findsOnlyLiveBroadcastsWithOldHeartbeat() {
 		LocalDateTime now = LocalDateTime.of(2026, 11, 18, 20, 0);
-		Broadcast stale = broadcastRepository.save(Broadcast.startLive("오래된 신호", now.minusSeconds(31)));
-		broadcastRepository.save(Broadcast.startLive("최근 신호", now.minusSeconds(5)));
-		Broadcast ended = Broadcast.startLive("종료됨", now.minusMinutes(5));
+		Broadcast stale = broadcastRepository.save(Broadcast.startLive("오래된 신호", owner(), now.minusSeconds(31)));
+		broadcastRepository.save(Broadcast.startLive("최근 신호", owner(), now.minusSeconds(5)));
+		Broadcast ended = Broadcast.startLive("종료됨", owner(), now.minusMinutes(5));
 		ended.endLive(now.minusMinutes(4));
 		broadcastRepository.save(ended);
 

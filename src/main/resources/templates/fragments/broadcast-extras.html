@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--
+	방송 상세(녹화·라이브) 화면이 함께 쓰는 소유자 관리 버튼과 댓글 영역.
+	버튼과 입력 폼은 로그인·소유자·작성자에게만 보이지만, 권한 검사는 버튼과 상관없이 서버가 한다.
+-->
+<section class="broadcast-manage" th:fragment="manage">
+	<p class="owner" th:if="${broadcast.owner}" th:text="'방송자: ' + ${broadcast.owner.username}"></p>
+	<p class="error-message" role="alert" th:if="${manageError}" th:text="${manageError}"></p>
+	<th:block th:if="${isOwner}">
+		<a th:href="@{/broadcasts/{id}/edit(id=${broadcast.id})}">제목 수정</a>
+		<form th:if="${broadcast.liveNow}" th:action="@{/broadcasts/{id}/end(id=${broadcast.id})}" method="post"
+			  style="display: inline">
+			<button type="submit">방송 종료</button>
+		</form>
+		<form th:action="@{/broadcasts/{id}/delete(id=${broadcast.id})}" method="post" style="display: inline"
+			  onsubmit="return confirm('방송을 삭제할까요? 댓글도 함께 삭제됩니다.');">
+			<button type="submit">방송 삭제</button>
+		</form>
+	</th:block>
+</section>
+
+<section id="comments" class="comments" th:fragment="comments">
+	<h2>댓글 <span th:text="${#lists.size(comments)}">0</span>개</h2>
+	<p class="error-message" role="alert" th:if="${commentError}" th:text="${commentError}"></p>
+	<form class="comment-form" th:if="${loginMember}" th:action="@{/broadcasts/{id}/comments(id=${broadcast.id})}"
+		  method="post">
+		<label for="comment-content">댓글</label>
+		<textarea id="comment-content" name="content" maxlength="500" rows="2"></textarea>
+		<button type="submit">등록</button>
+	</form>
+	<p class="comment-login" th:unless="${loginMember}">댓글을 쓰려면 <a href="/login">로그인</a>해 주세요.</p>
+	<p th:if="${#lists.isEmpty(comments)}">아직 댓글이 없습니다.</p>
+	<ul class="comment-list" th:unless="${#lists.isEmpty(comments)}">
+		<li th:each="comment : ${comments}" th:id="'comment-' + ${comment.id}">
+			<strong class="comment-author" th:text="${comment.author.username}"></strong>
+			<time th:text="${#temporals.format(comment.createdAt, 'yyyy.MM.dd HH:mm')}"></time>
+			<span class="comment-edited" th:if="${comment.updatedAt}">(수정됨)</span>
+			<p class="comment-content" th:text="${comment.content}"></p>
+			<th:block th:if="${loginMember != null and comment.isWrittenBy(loginMember.id)}">
+				<form th:action="@{/comments/{id}/edit(id=${comment.id})}" method="post">
+					<label th:for="'comment-edit-' + ${comment.id}">수정</label>
+					<input th:id="'comment-edit-' + ${comment.id}" type="text" name="content" maxlength="500"
+						   th:value="${comment.content}"/>
+					<button type="submit">수정</button>
+				</form>
+				<form th:action="@{/comments/{id}/delete(id=${comment.id})}" method="post"
+					  onsubmit="return confirm('댓글을 삭제할까요?');">
+					<button type="submit">삭제</button>
+				</form>
+			</th:block>
+		</li>
+	</ul>
+</section>
+</body>
+</html>

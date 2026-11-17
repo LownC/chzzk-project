@@ -14,11 +14,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 
+import com.programmers.chzzk.TestMembers;
 import com.programmers.chzzk.broadcast.Broadcast;
 import com.programmers.chzzk.broadcast.BroadcastRepository;
 import com.programmers.chzzk.broadcast.LiveStatus;
+import com.programmers.chzzk.member.MemberRepository;
 
 /**
  * 송출 휴대폰의 Wi-Fi가 끊기면 WebSocket 연결은 서버에 남은 채 생존 신호(heartbeat)만 멈춘다.
@@ -47,13 +50,23 @@ class LiveBroadcastExpiryServerTests {
 	private BroadcastRepository broadcastRepository;
 
 	@Autowired
+	private MemberRepository memberRepository;
+
+	@Autowired
+	private PasswordEncoder passwordEncoder;
+
+	private String sessionCookie;
+
+	@Autowired
 	private LiveSessionRegistry registry;
 
 	private final List<SignalingTestClient> clients = new ArrayList<>();
 
 	@BeforeEach
-	void clearBroadcasts() {
+	void clearBroadcasts() throws Exception {
 		broadcastRepository.deleteAll();
+		TestMembers.saveWithPassword(memberRepository, passwordEncoder, "live_owner");
+		sessionCookie = SignalingTestClient.login(port, "live_owner", TestMembers.PASSWORD);
 	}
 
 	@AfterEach
@@ -138,7 +151,7 @@ class LiveBroadcastExpiryServerTests {
 	}
 
 	private SignalingTestClient connect() throws Exception {
-		SignalingTestClient client = SignalingTestClient.connect(port);
+		SignalingTestClient client = SignalingTestClient.connect(port, sessionCookie);
 		clients.add(client);
 		return client;
 	}

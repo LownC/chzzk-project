@@ -8,6 +8,18 @@
 		<a href="/broadcasts/new">방송 등록</a>
 		<a href="/live/new">라이브 시작</a>
 	</nav>
+	<div class="account">
+		<th:block th:if="${loginMember}">
+			<span class="login-member" th:text="${loginMember.username} + '님'"></span>
+			<form class="logout-form" th:action="@{/logout}" method="post" style="display: inline">
+				<button type="submit">로그아웃</button>
+			</form>
+		</th:block>
+		<th:block th:unless="${loginMember}">
+			<a href="/login">로그인</a>
+			<a href="/signup">회원가입</a>
+		</th:block>
+	</div>
 </header>
 </body>
 </html>

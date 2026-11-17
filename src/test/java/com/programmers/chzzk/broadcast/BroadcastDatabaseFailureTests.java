@@ -5,6 +5,8 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -31,6 +33,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
+
+import com.programmers.chzzk.TestMembers;
+import com.programmers.chzzk.member.MemberRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -51,6 +57,13 @@ class BroadcastDatabaseFailureTests {
 	@Autowired
 	private MockMvc mockMvc;
 
+	@Autowired
+	private MemberRepository memberRepository;
+
+	private RequestPostProcessor loggedIn() {
+		return user(TestMembers.loginMember(TestMembers.save(memberRepository, "uploader")));
+	}
+
 	@MockitoBean
 	private BroadcastRepository broadcastRepository;
 
@@ -68,7 +81,7 @@ class BroadcastDatabaseFailureTests {
 
 	@Test
 	void databaseFailureReturnsRegistrationFailureJsonForXhr() throws Exception {
-		mockMvc.perform(multipart("/broadcasts").file(VIDEO_FILE).param("title", "방송")
+		mockMvc.perform(multipart("/broadcasts").with(loggedIn()).with(csrf()).file(VIDEO_FILE).param("title", "방송")
 				.header("X-Requested-With", "XMLHttpRequest"))
 			.andExpect(status().isInternalServerError())
 			.andExpect(jsonPath("$.message").value("방송 등록에 실패했습니다. 잠시 후 다시 시도해 주세요."))
@@ -77,7 +90,7 @@ class BroadcastDatabaseFailureTests {
 
 	@Test
 	void databaseFailureShowsRegistrationPageForForm() throws Exception {
-		mockMvc.perform(multipart("/broadcasts").file(VIDEO_FILE).param("title", "방송"))
+		mockMvc.perform(multipart("/broadcasts").with(loggedIn()).with(csrf()).file(VIDEO_FILE).param("title", "방송"))
 			.andExpect(status().isInternalServerError())
 			.andExpect(xpath("//form[@action='/broadcasts']").exists())
 			.andExpect(content().string(containsString("방송 등록에 실패했습니다. 잠시 후 다시 시도해 주세요.")))

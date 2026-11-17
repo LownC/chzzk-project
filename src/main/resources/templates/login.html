@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>로그인 - 치지직</title>
+</head>
+<body>
+<header th:replace="~{fragments/header :: header}"></header>
+<main>
+	<h1>로그인</h1>
+	<p class="error-message" role="alert" th:if="${param.error}">아이디 또는 비밀번호가 올바르지 않습니다.</p>
+	<p class="notice" th:if="${param.logout}">로그아웃했습니다.</p>
+	<p class="notice" th:if="${param.signedUp}">회원가입이 끝났습니다. 로그인해 주세요.</p>
+	<form th:action="@{/login}" method="post">
+		<p>
+			<label for="username">아이디</label>
+			<input id="username" type="text" name="username" autocomplete="username" required="required"/>
+		</p>
+		<p>
+			<label for="password">비밀번호</label>
+			<input id="password" type="password" name="password" autocomplete="current-password" required="required"/>
+		</p>
+		<button type="submit">로그인</button>
+	</form>
+	<p>계정이 없나요? <a href="/signup">회원가입</a></p>
+</main>
+</body>
+</html>

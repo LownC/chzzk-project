@@ -1,6 +1,7 @@
 package com.programmers.chzzk.live;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -17,8 +18,11 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.programmers.chzzk.TestMembers;
 import com.programmers.chzzk.broadcast.Broadcast;
 import com.programmers.chzzk.broadcast.BroadcastRepository;
+import com.programmers.chzzk.member.Member;
+import com.programmers.chzzk.member.MemberRepository;
 
 @SpringBootTest(properties = "app.live.ice-servers=stun:stun.example.test:3478")
 @AutoConfigureMockMvc
@@ -33,6 +37,13 @@ class LivePagesTests {
 	@Autowired
 	private BroadcastRepository broadcastRepository;
 
+	@Autowired
+	private MemberRepository memberRepository;
+
+	private Member owner() {
+		return TestMembers.save(memberRepository, "pages_owner");
+	}
+
 	@BeforeEach
 	void clearBroadcasts() {
 		broadcastRepository.deleteAll();
@@ -40,7 +51,7 @@ class LivePagesTests {
 
 	@Test
 	void broadcasterPageHasCameraPreviewControlsAndScript() throws Exception {
-		mockMvc.perform(get("/live/new"))
+		mockMvc.perform(get("/live/new").with(user(TestMembers.loginMember(owner()))))
 			.andExpect(status().isOk())
 			.andExpect(view().name("live-new"))
 			.andExpect(xpath("//main//input[@id='title'][@maxlength='100']").exists())
@@ -64,10 +75,10 @@ class LivePagesTests {
 	void listShowsLiveEndedAndRecordedStatus() throws Exception {
 		LocalDateTime now = LocalDateTime.of(2026, 11, 18, 20, 0);
 		broadcastRepository.save(new Broadcast("녹화 방송", "3f2c8a1e-5b7d-4c9a-8e21-0d6f4b9a7c13.mp4"));
-		Broadcast ended = Broadcast.startLive("끝난 라이브", now.plusMinutes(1));
+		Broadcast ended = Broadcast.startLive("끝난 라이브", owner(), now.plusMinutes(1));
 		ended.endLive(now.plusMinutes(2));
 		broadcastRepository.save(ended);
-		broadcastRepository.save(Broadcast.startLive("진행 중 라이브", now.plusMinutes(3)));
+		broadcastRepository.save(Broadcast.startLive("진행 중 라이브", owner(), now.plusMinutes(3)));
 
 		mockMvc.perform(get("/broadcasts"))
 			.andExpect(status().isOk())
@@ -78,7 +89,7 @@ class LivePagesTests {
 
 	@Test
 	void liveDetailShowsViewerPlayerWithBroadcastId() throws Exception {
-		Long id = broadcastRepository.save(Broadcast.startLive("진행 중 라이브", LocalDateTime.now())).getId();
+		Long id = broadcastRepository.save(Broadcast.startLive("진행 중 라이브", owner(), LocalDateTime.now())).getId();
 
 		mockMvc.perform(get("/broadcasts/" + id))
 			.andExpect(status().isOk())
@@ -95,7 +106,7 @@ class LivePagesTests {
 
 	@Test
 	void endedLiveDetailShowsEndedNoticeWithoutPlayer() throws Exception {
-		Broadcast ended = Broadcast.startLive("끝난 라이브", LocalDateTime.now().minusMinutes(10));
+		Broadcast ended = Broadcast.startLive("끝난 라이브", owner(), LocalDateTime.now().minusMinutes(10));
 		ended.endLive(LocalDateTime.now().minusMinutes(1));
 		Long id = broadcastRepository.save(ended).getId();
 
