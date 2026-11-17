@@ -19,6 +19,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.programmers.chzzk.comment.CommentRepository;
+import com.programmers.chzzk.donation.DonationRepository;
+import com.programmers.chzzk.donation.DonationStatus;
 import com.programmers.chzzk.global.exception.NotFoundException;
 import com.programmers.chzzk.member.MemberRepository;
 
@@ -36,15 +38,17 @@ public class BroadcastService {
 	private final VideoFileStorage videoFileStorage;
 	private final MemberRepository memberRepository;
 	private final CommentRepository commentRepository;
+	private final DonationRepository donationRepository;
 	private final TransactionTemplate transactionTemplate;
 
 	public BroadcastService(BroadcastRepository broadcastRepository, VideoFileStorage videoFileStorage,
-		MemberRepository memberRepository, CommentRepository commentRepository,
+		MemberRepository memberRepository, CommentRepository commentRepository, DonationRepository donationRepository,
 		PlatformTransactionManager transactionManager) {
 		this.broadcastRepository = broadcastRepository;
 		this.videoFileStorage = videoFileStorage;
 		this.memberRepository = memberRepository;
 		this.commentRepository = commentRepository;
+		this.donationRepository = donationRepository;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
@@ -101,6 +105,12 @@ public class BroadcastService {
 	}
 
 	/**
+	 * (④) 확정됐거나 승인 처리 중인 후원이 있는 방송은 결제 기록을 지키기 위해 삭제하지 않는다.
+	 * 확정되지 않고 끝난 주문(READY·FAILED·CANCELED)은 방송과 함께 지운다.
+	 */
+	private static final List<DonationStatus> KEPT_DONATION_STATUSES = List.of(DonationStatus.DONE, DonationStatus.IN_PROGRESS);
+
+	/**
 	 * 소유자만 삭제할 수 있다. 방송 중인 라이브는 먼저 종료해야 한다. 방송의 댓글도 함께 지운다.
 	 * DB 삭제가 커밋된 뒤 녹화방송의 영상 파일을 지운다. 파일 삭제에 실패하면 방송은 이미 없으므로 기록만 남긴다.
 	 */
@@ -110,6 +120,10 @@ public class BroadcastService {
 			if (broadcast.isLiveNow()) {
 				throw new BroadcastStillLiveException();
 			}
+			if (donationRepository.existsByBroadcastIdAndStatusIn(id, KEPT_DONATION_STATUSES)) {
+				throw new BroadcastHasDonationsException();
+			}
+			donationRepository.deleteByBroadcastId(id);
 			int deletedComments = commentRepository.deleteByBroadcastId(id);
 			broadcastRepository.delete(broadcast);
 			log.info("방송 삭제: broadcastId={}, memberId={}, deletedComments={}", id, memberId, deletedComments);

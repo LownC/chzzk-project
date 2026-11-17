@@ -32,6 +32,7 @@ import jakarta.servlet.http.HttpServletResponse;
  *     <li>로그인 필요: 방송 등록·라이브 송출·제목 수정 화면, 그리고 모든 POST(방송 등록·수정·삭제·종료,
  *     댓글 작성·수정·삭제, 로그아웃). 로그인·회원가입 POST만 예외다.</li>
  *     <li>라이브 방송 시작은 시그널링 처리기가 연결의 로그인 정보로 다시 검사한다.</li>
+ *     <li>(④) 후원 결제 흐름은 로그인 필요, 주문은 주문한 회원만. 결제 서비스 승인 통지 주소만 로그인·CSRF 검사 예외다.</li>
  * </ul>
  * 소유자·작성자 검사는 URL 규칙이 아니라 각 서비스가 회원 ID로 한다. CSRF 보호는 켜 둔다.
  * XHR 요청(업로드)은 로그인 화면으로 보내지 않고 401·403 JSON으로 응답한다.
@@ -41,6 +42,7 @@ import jakarta.servlet.http.HttpServletResponse;
 public class SecurityConfig {
 
 	private static final RequestMatcher XHR_REQUEST = new RequestHeaderRequestMatcher("X-Requested-With", "XMLHttpRequest");
+	private static final String PAYMENT_WEBHOOK = "/payments/toss/webhook";
 	private static final LoginUrlAuthenticationEntryPoint LOGIN_PAGE = new LoginUrlAuthenticationEntryPoint("/login");
 	private static final AccessDeniedHandlerImpl ACCESS_DENIED_PAGE = new AccessDeniedHandlerImpl();
 
@@ -55,8 +57,11 @@ public class SecurityConfig {
 		http
 			.authorizeHttpRequests(auth -> auth
 				.dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
-				// 등록·송출·수정 화면은 로그인 필요
-				.requestMatchers(HttpMethod.GET, "/broadcasts/new", "/live/new", "/broadcasts/{id}/edit").authenticated()
+				// 등록·송출·수정 화면과 후원 결제 흐름(결제 화면·결제창이 돌아오는 주소·결과)은 로그인 필요
+				.requestMatchers(HttpMethod.GET, "/broadcasts/new", "/live/new", "/broadcasts/{id}/edit", "/donations/**")
+				.authenticated()
+				// 결제 서비스의 승인 통지(서버 간 요청). 본문은 믿지 않고 서버가 결제 서비스에 다시 조회해 확인한다.
+				.requestMatchers(HttpMethod.POST, PAYMENT_WEBHOOK).permitAll()
 				// 그 밖의 조회(목록·상세·댓글 목록·영상·정적 파일·라이브 시청 연결)는 공개. 없는 경로는 404로 응답한다.
 				.requestMatchers(HttpMethod.GET, "/**").permitAll()
 				.requestMatchers(HttpMethod.POST, "/login", "/signup").permitAll()
@@ -70,6 +75,8 @@ public class SecurityConfig {
 				.logoutSuccessUrl("/login?logout")
 				.invalidateHttpSession(true)
 				.deleteCookies("JSESSIONID"))
+			// 결제 서비스가 보내는 승인 통지만 CSRF 검사에서 뺀다(브라우저 세션을 쓰지 않는 서버 간 요청). 나머지는 그대로 검사한다.
+			.csrf(csrf -> csrf.ignoringRequestMatchers(PAYMENT_WEBHOOK))
 			.sessionManagement(session -> session
 				.sessionFixation(fixation -> fixation.changeSessionId()))
 			.exceptionHandling(exceptions -> exceptions
