@@ -5,8 +5,8 @@
 ## 프로젝트 개요
 
 - **목적**: Spring Boot 기반 녹화 방송 등록·시청, 휴대폰 라이브 송출·시청, 회원 인증·인가와 댓글, 도네이션 서비스
-- **현재 구현 단계**: 4단계 — 도네이션(1~3단계 위에 추가). 설계는 `docs/donation.md`, 실행·확인 절차와 검증 결과는 README "도네이션 (Stage 4)"를 본다. 3단계 정책은 README "인증·인가 정책", 라이브 변경은 `docs/live-streaming.md` 9절.
-- **기술 스택**: Java 25, Spring Boot 4.1.2, Gradle Kotlin DSL, Spring MVC, Spring WebSocket, Spring Security(세션 폼 로그인·BCrypt·CSRF), Thymeleaf, 브라우저 WebRTC API, Spring Data JPA, H2(2.5.252 고정, README "H2 버전 고정")
+- **현재 구현 단계**: 5단계 — 로컬 오토스케일(1~4단계 위에 추가). 설계는 `docs/autoscale.md`, 실행·확인 절차와 관찰 결과는 README "로컬 오토스케일 (Stage 5)"를 본다. 4단계는 `docs/donation.md`, 3단계 정책은 README "인증·인가 정책", 라이브 변경은 `docs/live-streaming.md` 9절.
+- **기술 스택**: Java 25, Spring Boot 4.1.2, Gradle Kotlin DSL, Spring MVC, Spring WebSocket, Spring Security(세션 폼 로그인·BCrypt·CSRF), Thymeleaf, 브라우저 WebRTC API, Spring Data JPA, H2(2.5.252 고정, README "H2 버전 고정"), 5단계 cluster 프로파일의 Spring Data Redis·Spring Session Data Redis, Docker Compose·nginx·k6
 - **기본 패키지**: `com.programmers.chzzk`
 - **빌드/테스트**: `./gradlew build`, `./gradlew test` (Windows: `gradlew.bat`)
 
@@ -71,6 +71,14 @@ Spring Boot 4.x는 3.x와 starter 이름과 테스트 모듈 구성이 다르다
 - 실제 토스 테스트(샌드박스) 서버 호출은 NOT_TESTED로 기록하고, 실행하지 않은 검증을 통과로 보고하지 않는다.
 - 결제 키는 환경변수로만 받고 코드·로그·저장소에 넣지 않는다. 테스트 키(`test_`)가 아니면 시작하지 않는다.
 
+### 5단계 — 로컬 오토스케일
+
+- 서버 컨테이너 이미지(`Dockerfile`)와 Docker Compose 다중 인스턴스(`deploy/compose.yaml`), nginx 부하 분산기
+- 자체 스케일러(`scripts/autoscale/autoscaler.ps1`): CPU 사용률로 2~5개 사이 자동 스케일 아웃·인
+- 공용 저장소: 로그인 세션·라이브 방 등록부·시그널링 중계·가짜 결제 장부는 Redis, 방송·회원·댓글·후원은 H2 TCP 서버, 업로드 영상은 공용 볼륨. `app.cluster.enabled`(cluster 프로파일)일 때만 Redis를 쓰고 기본 실행·테스트는 그대로다
+- k6 부하 스크립트(`deploy/load/k6-load.js`), README에 관찰한 인스턴스 수 변화 기록
+- 클라우드 배포는 하지 않는다. 결제는 계속 가짜 게이트웨이만 쓴다
+
 썸네일, 라이브 녹화 저장, 결제 취소·환불·정산, 실시간 후원 알림, 회원정보 수정·탈퇴, 비밀번호 찾기, 관리자 권한, 실시간 댓글 기능은 구현하지 않는다.
 
 ## 작업 규칙
@@ -80,7 +88,7 @@ Spring Boot 4.x는 3.x와 starter 이름과 테스트 모듈 구성이 다르다
 - 한 번에 지나치게 많은 파일을 수정하지 않는다.
 - 기능 구현 후 관련 테스트를 실행한다.
 - 테스트 실패 시 원인을 분석하고 수정한다.
-- 사용자가 요청하지 않은 의존성을 추가하지 않는다. (3단계에서 Spring Security와 그 테스트 의존성만 사용자 승인을 받아 추가했다.)
+- 사용자가 요청하지 않은 의존성을 추가하지 않는다. (3단계에서 Spring Security와 그 테스트 의존성, 5단계에서 `spring-boot-starter-data-redis`·`spring-session-data-redis`만 사용자 승인을 받아 추가했다. 5단계 컨테이너 이미지 eclipse-temurin·nginx·redis·grafana/k6 사용도 승인받았다.)
 - 환경 변수와 파일 경로를 임의로 변경하지 않는다.
 - 실제 영상 파일, H2 데이터베이스, 그 백업을 삭제하지 않는다.
 

@@ -1,0 +1,198 @@
+# Stage 5 로컬 오토스케일 실행 기록 (2026-11-18, Docker Desktop 29.8.2, Windows 11)
+# 스케일러: .\scripts\autoscale\autoscaler.ps1 (기본값) / 부하: grafana/k6:1.0.0, deploy/load/k6-load.js, VUS=60, HOLD=4m
+
+## autoscaler.log (전체)
+2026-11-18T03:10:13 start min=2 max=5 out>=60% x2 in<20% x3 interval=10s
+2026-11-18T03:10:16 instances=2 cpu=0.3% (high=0 low=1 cooldown=False)
+2026-11-18T03:10:27 instances=2 cpu=0.3% (high=0 low=2 cooldown=False)
+2026-11-18T03:10:39 instances=2 cpu=0.4% (high=0 low=3 cooldown=False)
+2026-11-18T03:10:50 instances=2 cpu=99.7% (high=1 low=0 cooldown=False)
+2026-11-18T03:11:04 instances=2 cpu=98.6% -> scale-out to 3
+2026-11-18T03:11:16 instances=3 cpu=99.2% (high=1 low=0 cooldown=True)
+2026-11-18T03:11:29 instances=3 cpu=98% (high=2 low=0 cooldown=True)
+2026-11-18T03:11:42 instances=3 cpu=99.5% -> scale-out to 4
+2026-11-18T03:11:55 instances=4 cpu=101.1% (high=1 low=0 cooldown=True)
+2026-11-18T03:12:08 instances=4 cpu=101.6% (high=2 low=0 cooldown=True)
+2026-11-18T03:12:21 instances=4 cpu=101.5% -> scale-out to 5
+2026-11-18T03:12:34 instances=5 cpu=100% (high=1 low=0 cooldown=True)
+2026-11-18T03:12:47 instances=5 cpu=103.4% (high=2 low=0 cooldown=True)
+2026-11-18T03:12:59 instances=5 cpu=103% (high=3 low=0 cooldown=False)
+2026-11-18T03:13:12 instances=5 cpu=102.1% (high=4 low=0 cooldown=False)
+2026-11-18T03:13:25 instances=5 cpu=103.5% (high=5 low=0 cooldown=False)
+2026-11-18T03:13:38 instances=5 cpu=104.5% (high=6 low=0 cooldown=False)
+2026-11-18T03:13:50 instances=5 cpu=105.6% (high=7 low=0 cooldown=False)
+2026-11-18T03:14:03 instances=5 cpu=104.5% (high=8 low=0 cooldown=False)
+2026-11-18T03:14:16 instances=5 cpu=104.8% (high=9 low=0 cooldown=False)
+2026-11-18T03:14:28 instances=5 cpu=106.2% (high=10 low=0 cooldown=False)
+2026-11-18T03:14:41 instances=5 cpu=107.5% (high=11 low=0 cooldown=False)
+2026-11-18T03:14:54 instances=5 cpu=107.3% (high=12 low=0 cooldown=False)
+2026-11-18T03:15:07 instances=5 cpu=106.7% (high=13 low=0 cooldown=False)
+2026-11-18T03:15:19 instances=5 cpu=90.9% (high=14 low=0 cooldown=False)
+2026-11-18T03:15:32 instances=5 cpu=0.8% (high=0 low=1 cooldown=False)
+2026-11-18T03:15:45 instances=5 cpu=0.3% (high=0 low=2 cooldown=False)
+2026-11-18T03:15:59 instances=5 cpu=0.2% -> scale-in to 4
+2026-11-18T03:16:11 instances=4 cpu=0.2% (high=0 low=1 cooldown=True)
+2026-11-18T03:16:24 instances=4 cpu=0.2% (high=0 low=2 cooldown=True)
+2026-11-18T03:16:38 instances=4 cpu=0.3% -> scale-in to 3
+2026-11-18T03:16:51 instances=3 cpu=0.3% (high=0 low=1 cooldown=True)
+2026-11-18T03:17:03 instances=3 cpu=0.2% (high=0 low=2 cooldown=True)
+2026-11-18T03:17:17 instances=3 cpu=0.3% -> scale-in to 2
+2026-11-18T03:17:29 instances=2 cpu=0.2% (high=0 low=1 cooldown=True)
+2026-11-18T03:17:41 instances=2 cpu=0.6% (high=0 low=2 cooldown=True)
+2026-11-18T03:17:53 instances=2 cpu=0.4% (high=0 low=3 cooldown=False)
+2026-11-18T03:18:06 instances=2 cpu=0.1% (high=0 low=4 cooldown=False)
+2026-11-18T03:18:19 instances=2 cpu=0.2% (high=0 low=5 cooldown=False)
+2026-11-18T03:18:31 instances=2 cpu=5.4% (high=0 low=6 cooldown=False)
+2026-11-18T03:18:44 instances=2 cpu=12.3% (high=0 low=7 cooldown=False)
+2026-11-18T03:18:56 instances=2 cpu=1.2% (high=0 low=8 cooldown=False)
+2026-11-18T03:19:09 instances=2 cpu=0.2% (high=0 low=9 cooldown=False)
+2026-11-18T03:19:22 instances=2 cpu=0.2% (high=0 low=10 cooldown=False)
+2026-11-18T03:19:34 instances=2 cpu=0.4% (high=0 low=11 cooldown=False)
+2026-11-18T03:19:47 instances=2 cpu=0.2% (high=0 low=12 cooldown=False)
+2026-11-18T03:19:59 instances=2 cpu=0.2% (high=0 low=13 cooldown=False)
+2026-11-18T03:20:12 instances=2 cpu=0.2% (high=0 low=14 cooldown=False)
+2026-11-18T03:20:24 instances=2 cpu=0.8% (high=0 low=15 cooldown=False)
+
+## docker compose ps — 부하가 끝난 직후
+chzzk-autoscale-app-1 Up 5 minutes
+chzzk-autoscale-app-2 Up 6 minutes
+chzzk-autoscale-app-3 Up 4 minutes
+chzzk-autoscale-app-4 Up 3 minutes
+chzzk-autoscale-app-5 Up 3 minutes
+chzzk-autoscale-h2-1 Up 13 minutes
+chzzk-autoscale-lb-1 Up 6 minutes
+chzzk-autoscale-redis-1 Up 13 minutes
+
+## docker compose ps — 스케일 인 뒤
+﻿chzzk-autoscale-app-1 Up 8 minutes
+chzzk-autoscale-app-2 Up 9 minutes
+chzzk-autoscale-h2-1 Up 16 minutes
+chzzk-autoscale-lb-1 Up 9 minutes
+chzzk-autoscale-redis-1 Up 16 minutes
+
+## k6 요약
+  █ TOTAL RESULTS 
+
+    checks_total.......................: 428535  1477.694146/s
+    checks_succeeded...................: 100.00% 428535 out of 428535
+    checks_failed......................: 0.00%   0 out of 428535
+
+    ✓ 목록 200
+    ✓ 목록 2페이지 200
+    ✓ 로그인 화면 200
+
+    HTTP
+    http_req_duration.......................................................: avg=20.26ms  min=266.37µs med=2.02ms  max=1.44s p(90)=84.14ms  p(95)=96.06ms 
+      { expected_response:true }............................................: avg=20.26ms  min=266.37µs med=2.02ms  max=1.44s p(90)=84.14ms  p(95)=96.06ms 
+    http_req_failed.........................................................: 0.00%  0 out of 428535
+    http_reqs...............................................................: 428535 1477.694146/s
+
+    EXECUTION
+    iteration_duration......................................................: avg=111.37ms min=54.04ms  med=77.53ms max=1.64s p(90)=221.91ms p(95)=292.24ms
+    iterations..............................................................: 142845 492.564715/s
+    vus.....................................................................: 1      min=1           max=60
+    vus_max.................................................................: 60     min=60          max=60
+
+    NETWORK
+    data_received...........................................................: 781 MB 2.7 MB/s
+    data_sent...............................................................: 29 MB  102 kB/s
+
+
+
+
+# ---------------------------------------------------------------
+# 최종 커밋 코드(최종 이미지)로 다시 실행 — 2026-11-18 03:36~03:45
+# 03:36~03:39는 앞선 부하가 남아 있던 3개에서 시작해 5개로 늘었다가 2개로 줄어든 부분, 03:39:58부터 k6(HOLD=2m)
+
+## autoscaler.log (전체)
+2026-11-18T03:36:20 start min=2 max=5 out>=60% x2 in<20% x3 interval=10s
+2026-11-18T03:36:23 instances=3 cpu=102.4% (high=1 low=0 cooldown=False)
+2026-11-18T03:36:36 instances=3 cpu=104% -> scale-out to 4
+2026-11-18T03:36:49 instances=4 cpu=101.4% (high=1 low=0 cooldown=True)
+2026-11-18T03:37:02 instances=4 cpu=103.4% (high=2 low=0 cooldown=True)
+2026-11-18T03:37:15 instances=4 cpu=105.8% -> scale-out to 5
+2026-11-18T03:37:28 instances=5 cpu=91.6% (high=1 low=0 cooldown=True)
+2026-11-18T03:37:41 instances=5 cpu=19.7% (high=0 low=1 cooldown=True)
+2026-11-18T03:37:54 instances=5 cpu=0.2% (high=0 low=2 cooldown=False)
+2026-11-18T03:38:07 instances=5 cpu=0.3% -> scale-in to 4
+2026-11-18T03:38:20 instances=4 cpu=0.1% (high=0 low=1 cooldown=True)
+2026-11-18T03:38:32 instances=4 cpu=0.6% (high=0 low=2 cooldown=True)
+2026-11-18T03:38:46 instances=4 cpu=1% -> scale-in to 3
+2026-11-18T03:38:58 instances=3 cpu=0.2% (high=0 low=1 cooldown=True)
+2026-11-18T03:39:11 instances=3 cpu=0.2% (high=0 low=2 cooldown=True)
+2026-11-18T03:39:24 instances=3 cpu=0.1% -> scale-in to 2
+2026-11-18T03:39:37 instances=2 cpu=0.2% (high=0 low=1 cooldown=True)
+2026-11-18T03:39:50 instances=2 cpu=0.4% (high=0 low=2 cooldown=True)
+2026-11-18T03:40:02 instances=2 cpu=30.3% (high=0 low=0 cooldown=False)
+2026-11-18T03:40:15 instances=2 cpu=102.1% (high=1 low=0 cooldown=False)
+2026-11-18T03:40:28 instances=2 cpu=101.1% -> scale-out to 3
+2026-11-18T03:40:41 instances=3 cpu=101.7% (high=1 low=0 cooldown=True)
+2026-11-18T03:40:53 instances=3 cpu=102.6% (high=2 low=0 cooldown=True)
+2026-11-18T03:41:07 instances=3 cpu=103.7% -> scale-out to 4
+2026-11-18T03:41:20 instances=4 cpu=103.9% (high=1 low=0 cooldown=True)
+2026-11-18T03:41:32 instances=4 cpu=104.3% (high=2 low=0 cooldown=True)
+2026-11-18T03:41:46 instances=4 cpu=104.4% -> scale-out to 5
+2026-11-18T03:41:59 instances=5 cpu=105.9% (high=1 low=0 cooldown=True)
+2026-11-18T03:42:11 instances=5 cpu=105.3% (high=2 low=0 cooldown=True)
+2026-11-18T03:42:24 instances=5 cpu=104.6% (high=3 low=0 cooldown=False)
+2026-11-18T03:42:37 instances=5 cpu=103.2% (high=4 low=0 cooldown=False)
+2026-11-18T03:42:49 instances=5 cpu=23% (high=0 low=0 cooldown=False)
+2026-11-18T03:43:02 instances=5 cpu=0.2% (high=0 low=1 cooldown=False)
+2026-11-18T03:43:14 instances=5 cpu=0.3% (high=0 low=2 cooldown=False)
+2026-11-18T03:43:28 instances=5 cpu=0.2% -> scale-in to 4
+2026-11-18T03:43:41 instances=4 cpu=0.3% (high=0 low=1 cooldown=True)
+2026-11-18T03:43:53 instances=4 cpu=0.6% (high=0 low=2 cooldown=True)
+2026-11-18T03:44:07 instances=4 cpu=0.3% -> scale-in to 3
+2026-11-18T03:44:19 instances=3 cpu=0.2% (high=0 low=1 cooldown=True)
+2026-11-18T03:44:32 instances=3 cpu=0.2% (high=0 low=2 cooldown=True)
+2026-11-18T03:44:45 instances=3 cpu=0.2% -> scale-in to 2
+2026-11-18T03:44:58 instances=2 cpu=0.2% (high=0 low=1 cooldown=True)
+2026-11-18T03:45:11 instances=2 cpu=0.2% (high=0 low=2 cooldown=True)
+2026-11-18T03:45:23 instances=2 cpu=0.1% (high=0 low=3 cooldown=False)
+
+## docker compose ps — 부하가 끝난 직후
+chzzk-autoscale-app-1 Up 9 minutes
+chzzk-autoscale-app-2 Up 13 minutes
+chzzk-autoscale-app-3 Up 2 minutes
+chzzk-autoscale-app-4 Up About a minute
+chzzk-autoscale-app-5 Up About a minute
+chzzk-autoscale-h2-1 Up 40 minutes
+chzzk-autoscale-lb-1 Up 34 minutes
+chzzk-autoscale-redis-1 Up 40 minutes
+
+## docker compose ps — 스케일 인 뒤
+chzzk-autoscale-app-1 Up 12 minutes
+chzzk-autoscale-app-2 Up 16 minutes
+chzzk-autoscale-h2-1 Up 43 minutes
+chzzk-autoscale-lb-1 Up 36 minutes
+chzzk-autoscale-redis-1 Up 43 minutes
+
+## k6 요약
+  █ TOTAL RESULTS 
+
+    checks_total.......................: 210594  1238.735748/s
+    checks_succeeded...................: 100.00% 210594 out of 210594
+    checks_failed......................: 0.00%   0 out of 210594
+
+    ✓ 목록 200
+    ✓ 목록 2페이지 200
+    ✓ 로그인 화면 200
+
+    HTTP
+    http_req_duration.......................................................: avg=24.48ms  min=856.92µs med=2.58ms   max=1.49s p(90)=88.12ms  p(95)=95.59ms 
+      { expected_response:true }............................................: avg=24.48ms  min=856.92µs med=2.58ms   max=1.49s p(90)=88.12ms  p(95)=95.59ms 
+    http_req_failed.........................................................: 0.00%  0 out of 210594
+    http_reqs...............................................................: 210594 1238.735748/s
+
+    EXECUTION
+    iteration_duration......................................................: avg=124.09ms min=54.37ms  med=101.76ms max=1.9s  p(90)=201.42ms p(95)=259.28ms
+    iterations..............................................................: 70198  412.911916/s
+    vus.....................................................................: 1      min=1           max=60
+    vus_max.................................................................: 60     min=60          max=60
+
+    NETWORK
+    data_received...........................................................: 455 MB 2.7 MB/s
+    data_sent...............................................................: 15 MB  85 kB/s
+
+
+

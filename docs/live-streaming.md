@@ -215,3 +215,21 @@ PC에서 확인한 것(실기기 아님): 생성한 인증서의 SAN·체인, `d
 - **소유자 없는 방송**: ③ 이전에 만든 라이브 방송은 소유자가 없어 상세 화면에서 종료·삭제할 수 없다. 방송 중이었다면 생존 신호 만료로 ENDED가 된다.
 - **테스트**: `LiveSignalingServerTests`(비로그인 `start` 거절, 시작한 회원이 소유자, 비로그인 시청), `LiveBroadcastServiceTests`(소유자 종료·다른 회원 거절·없는 방송), `BroadcastAuthorizationTests`(HTTP 종료·삭제 권한). 실제 서버 테스트는 로그인 화면으로 폼 로그인을 해서 얻은 세션 쿠키로 WebSocket에 연결한다.
 - **실기기**: 8절의 Android 13/13 결과는 ② 코드(로그인 없음) 기준이다. ③ 코드에서 휴대폰으로 로그인한 뒤 송출하는 흐름은 실기기로 아직 확인하지 않았다(README "인증·인가와 댓글 직접 확인" 7번).
+
+## 10. Stage 5(여러 인스턴스) 이후 라이브의 변경
+
+6절의 기술 부채(방 정보·연결이 서버 메모리에 있음)를 ⑤에서 해소했다. 자세한 내용은 [autoscale.md](autoscale.md) 3절.
+
+| 항목 | ④까지 | ⑤ `cluster` 프로파일 |
+| --- | --- | --- |
+| 방 등록부 | `LiveSessionRegistry`(메모리) | `RedisLiveRoomStore`(Redis, Lua로 원자적 입장·퇴장·교체·닫기). 둘 다 `LiveRoomStore` 구현 |
+| 다른 인스턴스의 연결로 보내기 | 없음(한 서버) | `RedisLiveMessageRelay`(Redis pub/sub 채널 `chzzk:live:signal`) |
+| 인스턴스 종료 | 해당 없음 | 모든 연결에 `{"type":"reconnect"}` 후 닫기 코드 1012. 송출 연결이 닫혀도 방송을 끝내지 않음 |
+
+새 메시지:
+
+- `→ {"type":"resume","broadcastId":N}`: 송출 화면이 다시 연결한 뒤 보낸다. 로그인한 방송 소유자이고 방송 중이며 방이 있을 때만 이 연결을 송출자로 바꾼다. 아니면 `UNAUTHENTICATED`·`INVALID_ROLE`·`NOT_FOUND`·`NOT_LIVE`.
+- `← {"type":"resumed","broadcastId":N,"viewerIds":[...]}`: 지금 방에 있는 시청자 ID 목록. 송출 화면은 연결이 없는 시청자에게 새 Offer를 보내고 목록에 없는 시청자의 연결은 닫는다.
+- `← {"type":"reconnect"}`: 이 인스턴스가 내려가니 다시 연결하라는 안내. 송출 화면은 `resume`, 시청 화면은 다시 `watch`한다(0.5·1·2·3·5초 간격, 최대 5번).
+
+기본 설정(한 서버)에서는 방 등록부가 메모리이고 중계가 없을 뿐 메시지 규칙은 같다. 테스트: `LiveRoomStoreContract`(메모리·Redis 구현 공통), `LiveSignalingResumeServerTests`.

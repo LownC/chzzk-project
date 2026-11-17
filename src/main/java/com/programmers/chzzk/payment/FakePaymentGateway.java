@@ -1,9 +1,9 @@
 package com.programmers.chzzk.payment;
 
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import com.programmers.chzzk.payment.FakePaymentLedger.FakePayment;
 
 /**
  * 외부 호출 없이 토스페이먼츠 테스트 모드의 동작을 흉내 내는 게이트웨이. 자동 테스트와 로컬 검증용이며 기본값이다.
@@ -12,15 +12,23 @@ import java.util.concurrent.atomic.AtomicInteger;
  *     <li>서버 승인: {@link #confirm}이 주문번호·금액이 인증 때와 같은지 보고 DONE으로 바꾼다.
  *     이미 승인된 결제는 {@code ALREADY_PROCESSED_PAYMENT}, 금액이 다르면 {@code INVALID_REQUEST}로 거절한다.</li>
  * </ol>
- * 실제 돈이나 카드 정보는 다루지 않는다.
+ * 결제 기록은 {@link FakePaymentLedger}에 둔다(인스턴스 하나면 메모리, ⑤ 여러 인스턴스면 Redis). 실제 돈이나 카드 정보는 다루지 않는다.
  */
 public class FakePaymentGateway implements PaymentGateway {
 
 	public static final String NAME = "fake";
 	public static final String REJECT_CARD_COMPANY = "REJECT_CARD_COMPANY";
 
-	private final Map<String, Payment> payments = new ConcurrentHashMap<>();
+	private final FakePaymentLedger ledger;
 	private final AtomicInteger confirmCalls = new AtomicInteger();
+
+	public FakePaymentGateway() {
+		this(new FakePaymentLedger.InMemory());
+	}
+
+	public FakePaymentGateway(FakePaymentLedger ledger) {
+		this.ledger = ledger;
+	}
 
 	@Override
 	public String name() {
@@ -32,53 +40,35 @@ public class FakePaymentGateway implements PaymentGateway {
 	 */
 	public String authorize(String orderId, long amount, boolean declineOnConfirm) {
 		String paymentKey = "fake_" + UUID.randomUUID();
-		payments.put(paymentKey, new Payment(orderId, amount, "READY", declineOnConfirm));
+		ledger.save(paymentKey, new FakePayment(orderId, amount, "READY", declineOnConfirm));
 		return paymentKey;
 	}
 
 	@Override
-	public synchronized PaymentApproval confirm(String paymentKey, String orderId, long amount) {
+	public PaymentApproval confirm(String paymentKey, String orderId, long amount) {
 		confirmCalls.incrementAndGet();
-		Payment payment = payments.get(paymentKey);
-		if (payment == null) {
-			throw new PaymentGatewayException(PaymentGatewayException.NOT_FOUND_PAYMENT, "결제 정보를 찾을 수 없습니다.");
-		}
-		if (!payment.orderId().equals(orderId) || payment.amount() != amount) {
-			throw new PaymentGatewayException("INVALID_REQUEST", "결제 정보가 인증 때와 다릅니다.");
-		}
-		if (PaymentApproval.DONE.equals(payment.status())) {
-			throw new PaymentGatewayException("ALREADY_PROCESSED_PAYMENT", "이미 처리된 결제입니다.");
-		}
-		if (payment.declineOnConfirm()) {
-			payments.put(paymentKey, payment.withStatus("ABORTED"));
-			throw new PaymentGatewayException(REJECT_CARD_COMPANY, "카드사에서 결제를 거절했습니다.");
-		}
-		payments.put(paymentKey, payment.withStatus(PaymentApproval.DONE));
-		return new PaymentApproval(paymentKey, orderId, amount, PaymentApproval.DONE);
+		return switch (ledger.confirm(paymentKey, orderId, amount)) {
+			case DONE -> new PaymentApproval(paymentKey, orderId, amount, PaymentApproval.DONE);
+			case NOT_FOUND -> throw new PaymentGatewayException(PaymentGatewayException.NOT_FOUND_PAYMENT,
+				"결제 정보를 찾을 수 없습니다.");
+			case MISMATCH -> throw new PaymentGatewayException("INVALID_REQUEST", "결제 정보가 인증 때와 다릅니다.");
+			case ALREADY_DONE -> throw new PaymentGatewayException("ALREADY_PROCESSED_PAYMENT", "이미 처리된 결제입니다.");
+			case DECLINED -> throw new PaymentGatewayException(REJECT_CARD_COMPANY, "카드사에서 결제를 거절했습니다.");
+		};
 	}
 
 	@Override
 	public PaymentApproval find(String paymentKey) {
-		Payment payment = payments.get(paymentKey);
-		if (payment == null) {
-			throw new PaymentGatewayException(PaymentGatewayException.NOT_FOUND_PAYMENT, "결제 정보를 찾을 수 없습니다.");
-		}
+		FakePayment payment = ledger.find(paymentKey).orElseThrow(() -> new PaymentGatewayException(
+			PaymentGatewayException.NOT_FOUND_PAYMENT, "결제 정보를 찾을 수 없습니다."));
 		return new PaymentApproval(paymentKey, payment.orderId(), payment.amount(), payment.status());
 	}
 
 	/**
-	 * 테스트용: 지금까지 승인 요청을 받은 횟수(중복·동시 요청에서 실제 승인 호출이 한 번뿐인지 확인).
+	 * 테스트용: 이 인스턴스가 지금까지 승인 요청을 받은 횟수(중복·동시 요청에서 실제 승인 호출이 한 번뿐인지 확인).
 	 */
 	public int confirmCallCount() {
 		return confirmCalls.get();
-	}
-
-	private record Payment(String orderId, long amount, String status, boolean declineOnConfirm) {
-
-		private Payment withStatus(String newStatus) {
-			return new Payment(orderId, amount, newStatus, declineOnConfirm);
-		}
-
 	}
 
 }
