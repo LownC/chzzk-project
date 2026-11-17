@@ -1,0 +1,77 @@
+# ⑤ 로컬 오토스케일 구성(Docker Compose). 실행 방법은 README "로컬 오토스케일 (Stage 5)".
+#
+#   lb (nginx)  ──least_conn──▶  app × N (2~5, scripts/autoscale/autoscaler.ps1이 CPU를 보고 조절)
+#                                   │
+#              공용 상태: h2 (H2 TCP 서버, 방송·회원·댓글·후원) · redis (로그인 세션·라이브 방·시그널링 중계·가짜 결제)
+#                         uploads 볼륨 (업로드 영상)
+#
+# 앱 인스턴스는 상태를 갖지 않으므로 늘리거나 줄여도 로그인·방송·댓글·후원·영상이 그대로다.
+name: chzzk-autoscale
+
+services:
+  h2:
+    image: chzzk-app:local
+    # 앱 이미지 안의 H2로 TCP 서버를 띄운다(새 DB 드라이버 없이 여러 인스턴스가 같은 DB를 쓴다). 컨테이너 네트워크 안에서만 열린다.
+    entrypoint:
+      - java
+      - -cp
+      - /app/app.jar
+      - -Dloader.main=org.h2.tools.Server
+      - org.springframework.boot.loader.launch.PropertiesLauncher
+      - -tcp
+      - -tcpAllowOthers
+      - -tcpPort
+      - "9092"
+      - -ifNotExists
+      - -baseDir
+      - /h2data
+    volumes:
+      - h2data:/h2data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+
+  app:
+    image: chzzk-app:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: cluster
+      CHZZK_DB_PASSWORD: ${CHZZK_DB_PASSWORD:?deploy/.env.example을 참고해 CHZZK_DB_PASSWORD를 지정하세요}
+      APP_PAYMENT_GATEWAY: fake
+      APP_LIVE_ICE_SERVERS: ${APP_LIVE_ICE_SERVERS:-}
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      - h2
+      - redis
+    # 인스턴스 하나의 CPU를 0.5개로 묶어, 부하를 걸면 CPU 사용률이 올라 스케일 아웃이 일어나게 한다.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 768M
+    # 스케일 인 때 SIGTERM 뒤 처리 중인 요청을 마치고 내려간다(server.shutdown=graceful).
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  lb:
+    image: nginx:1.28-alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:${CHZZK_HTTP_PORT:-18090}:80"
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  h2data:
+  redisdata:
+  uploads:
