@@ -19,6 +19,12 @@ spring:
         jdbc:
           time_zone: Asia/Seoul
 
+  # ⑤ Redis는 cluster 프로파일에서만 쓴다(세션·라이브 방 등록부·시그널링 중계). JPA 저장소를 Redis 저장소로 찾지 않게 끈다.
+  data:
+    redis:
+      repositories:
+        enabled: false
+
 # 로그인 세션(③). 30분 동안 요청이 없으면 세션이 만료되어 다시 로그인해야 한다.
 server:
   servlet:
@@ -29,6 +35,9 @@ server:
         same-site: lax
 
 app:
+  # ⑤ 여러 인스턴스 실행 여부. true(cluster 프로파일)일 때만 Redis 세션·등록부·중계를 쓴다.
+  cluster:
+    enabled: false
   file:
     upload-dir: ${APP_UPLOAD_DIR:C:/Users/Wonseok/Desktop/Dev/programmers/chzzk_project/chzzk_uploads/broadcasts}
   live:

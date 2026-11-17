@@ -1,12 +1,16 @@
 package com.programmers.chzzk.live;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -31,7 +35,7 @@ import tools.jackson.databind.node.ObjectNode;
  * 프로토콜과 오류 코드는 docs/live-streaming.md 4절에 있다.
  */
 @Component
-public class LiveSignalingHandler extends TextWebSocketHandler {
+public class LiveSignalingHandler extends TextWebSocketHandler implements ApplicationListener<ContextClosedEvent> {
 
 	private static final Logger log = LoggerFactory.getLogger(LiveSignalingHandler.class);
 
@@ -49,17 +53,68 @@ public class LiveSignalingHandler extends TextWebSocketHandler {
 	private enum Role { PUBLISHER, VIEWER }
 
 	private final LiveBroadcastService liveBroadcastService;
-	private final LiveSessionRegistry registry;
+	private final LiveRoomStore registry;
 	private final LiveProperties liveProperties;
 	private final JsonMapper jsonMapper;
+	private final ObjectProvider<LiveMessageRelay> relayProvider;
 	private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+	private volatile boolean shuttingDown;
 
-	public LiveSignalingHandler(LiveBroadcastService liveBroadcastService, LiveSessionRegistry registry,
-		LiveProperties liveProperties, JsonMapper jsonMapper) {
+	public LiveSignalingHandler(LiveBroadcastService liveBroadcastService, LiveRoomStore registry,
+		LiveProperties liveProperties, JsonMapper jsonMapper, ObjectProvider<LiveMessageRelay> relayProvider) {
 		this.liveBroadcastService = liveBroadcastService;
 		this.registry = registry;
 		this.liveProperties = liveProperties;
 		this.jsonMapper = jsonMapper;
+		this.relayProvider = relayProvider;
+	}
+
+	/**
+	 * (⑤) 인스턴스가 줄어 이 서버가 내려갈 때. 방송을 끝내지 않고, 이 서버에 붙은 연결에 다시 연결하라고 알린 뒤 닫는다.
+	 * 송출 화면은 다른 인스턴스에 다시 붙어 {@code resume}으로 송출을 이어 가고, 시청 화면은 다시 {@code watch}한다.
+	 * 방송 상태(DB)와 방 등록부(Redis)는 인스턴스 밖에 있으므로 그대로 남는다.
+	 */
+	@Override
+	public void onApplicationEvent(ContextClosedEvent event) {
+		shuttingDown = true;
+		for (WebSocketSession session : List.copyOf(sessions.values())) {
+			send(session.getId(), message("reconnect"));
+			try {
+				session.close(CloseStatus.SERVICE_RESTARTED);
+			} catch (IOException e) {
+				log.debug("종료 중 연결 닫기 실패: sessionId={}", session.getId(), e);
+			}
+		}
+	}
+
+	/**
+	 * 다른 인스턴스가 중계한 메시지를 이 서버의 연결로 보낸다. 이 서버에 없는 연결이면 무시한다.
+	 */
+	public void deliverLocal(String sessionId, String payload) {
+		WebSocketSession session = sessions.get(sessionId);
+		if (session == null || !session.isOpen()) {
+			return;
+		}
+		try {
+			session.sendMessage(new TextMessage(payload));
+		} catch (IOException | SessionLimitExceededException e) {
+			log.debug("중계 메시지 전송 실패: sessionId={}", sessionId, e);
+		}
+	}
+
+	/**
+	 * 다른 인스턴스가 요청한 연결 닫기. 이 서버에 없는 연결이면 무시한다.
+	 */
+	public void closeLocal(String sessionId) {
+		WebSocketSession session = sessions.get(sessionId);
+		if (session == null) {
+			return;
+		}
+		try {
+			session.close(CloseStatus.NORMAL);
+		} catch (IOException e) {
+			log.debug("중계된 연결 종료 실패: sessionId={}", sessionId, e);
+		}
 	}
 
 	@Override
@@ -75,6 +130,7 @@ public class LiveSignalingHandler extends TextWebSocketHandler {
 			JsonNode request = parse(message.getPayload());
 			switch (request.path("type").asString()) {
 				case "start" -> start(session, request);
+				case "resume" -> resume(session, request);
 				case "watch" -> watch(session, request);
 				case "offer" -> offer(session, request);
 				case "answer" -> answer(session, request);
@@ -96,7 +152,10 @@ public class LiveSignalingHandler extends TextWebSocketHandler {
 	public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
 		sessions.remove(session.getId());
 		Role role = (Role)session.getAttributes().get(ROLE);
-		if (role == Role.PUBLISHER) {
+		if (role == Role.PUBLISHER && shuttingDown) {
+			log.info("인스턴스 종료로 송출 연결이 끊김, 방송은 유지(송출 화면이 다시 연결해 이어 감): broadcastId={}",
+				broadcastIdOf(session));
+		} else if (role == Role.PUBLISHER) {
 			long broadcastId = broadcastIdOf(session);
 			boolean stillPublishing = registry.publisherOf(broadcastId).filter(session.getId()::equals).isPresent();
 			if (stillPublishing) {
@@ -131,6 +190,39 @@ public class LiveSignalingHandler extends TextWebSocketHandler {
 		send(session.getId(), message("started")
 			.put("broadcastId", broadcastId)
 			.put("watchUrl", "/broadcasts/" + broadcastId));
+	}
+
+	/**
+	 * (⑤) 송출 연결이 있던 인스턴스가 내려간 뒤 송출 화면이 다른 인스턴스에 다시 붙어 송출을 이어 간다.
+	 * 로그인한 방송 소유자이고 방송이 아직 방송 중일 때만 이 연결을 송출자로 바꾼다.
+	 */
+	private void resume(WebSocketSession session, JsonNode request) {
+		requireNoRole(session);
+		LoginMember loginMember = loginMemberOf(session)
+			.orElseThrow(() -> new SignalingException(SignalingError.UNAUTHENTICATED));
+		long broadcastId = requirePositiveId(request.path("broadcastId"));
+		Broadcast broadcast = liveBroadcastService.findBroadcast(broadcastId)
+			.orElseThrow(() -> new SignalingException(SignalingError.NOT_FOUND));
+		if (!broadcast.isOwnedBy(loginMember.getId())) {
+			throw new SignalingException(SignalingError.INVALID_ROLE);
+		}
+		if (!broadcast.isLiveNow()) {
+			throw new SignalingException(SignalingError.NOT_LIVE);
+		}
+		List<String> viewerIds = registry.replacePublisher(broadcastId, session.getId())
+			.orElseThrow(() -> new SignalingException(SignalingError.NOT_LIVE));
+		session.getAttributes().put(ROLE, Role.PUBLISHER);
+		session.getAttributes().put(BROADCAST_ID, broadcastId);
+		try {
+			liveBroadcastService.recordHeartbeat(broadcastId);
+		} catch (IllegalStateException e) {
+			endBroadcast(broadcastId);
+			return;
+		}
+		log.info("송출 연결 다시 이어짐: broadcastId={}", broadcastId);
+		ObjectNode resumed = message("resumed").put("broadcastId", broadcastId);
+		viewerIds.forEach(resumed.putArray("viewerIds")::add);
+		send(session.getId(), resumed);
 	}
 
 	private void watch(WebSocketSession session, JsonNode request) {
@@ -339,9 +431,16 @@ public class LiveSignalingHandler extends TextWebSocketHandler {
 		return message("error").put("code", error.name()).put("message", detail);
 	}
 
+	/**
+	 * 이 서버에 있는 연결이면 바로 보내고, 없으면(⑤ 다른 인스턴스의 연결) 중계로 넘긴다.
+	 */
 	private void send(String sessionId, ObjectNode message) {
 		WebSocketSession session = sessions.get(sessionId);
-		if (session == null || !session.isOpen()) {
+		if (session == null) {
+			relay().forward(sessionId, jsonMapper.writeValueAsString(message));
+			return;
+		}
+		if (!session.isOpen()) {
 			return;
 		}
 		try {
@@ -351,9 +450,14 @@ public class LiveSignalingHandler extends TextWebSocketHandler {
 		}
 	}
 
+	private LiveMessageRelay relay() {
+		return relayProvider.getIfAvailable(() -> LiveMessageRelay.LOCAL_ONLY);
+	}
+
 	private void close(String sessionId) {
 		WebSocketSession session = sessions.get(sessionId);
 		if (session == null) {
+			relay().forwardClose(sessionId);
 			return;
 		}
 		try {

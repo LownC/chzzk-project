@@ -1,5 +1,6 @@
 package com.programmers.chzzk.payment;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,10 +16,22 @@ import tools.jackson.databind.json.JsonMapper;
 @EnableConfigurationProperties(PaymentProperties.class)
 public class PaymentConfig {
 
+	/**
+	 * (⑤) 여러 인스턴스(cluster)에서는 가짜 결제 기록을 Redis({@link RedisFakePaymentLedger})에 둔다. 없으면 메모리.
+	 */
 	@Bean
-	public PaymentGateway paymentGateway(PaymentProperties properties, JsonMapper jsonMapper) {
+	public PaymentGateway paymentGateway(PaymentProperties properties, JsonMapper jsonMapper,
+		ObjectProvider<FakePaymentLedger> sharedLedger) {
+		return create(properties, jsonMapper, sharedLedger.getIfAvailable(FakePaymentLedger.InMemory::new));
+	}
+
+	PaymentGateway create(PaymentProperties properties, JsonMapper jsonMapper) {
+		return create(properties, jsonMapper, new FakePaymentLedger.InMemory());
+	}
+
+	private PaymentGateway create(PaymentProperties properties, JsonMapper jsonMapper, FakePaymentLedger ledger) {
 		return switch (properties.gateway()) {
-			case FakePaymentGateway.NAME -> new FakePaymentGateway();
+			case FakePaymentGateway.NAME -> new FakePaymentGateway(ledger);
 			case TossPaymentsGateway.NAME -> tossGateway(properties.toss(), jsonMapper);
 			default -> throw new IllegalStateException(
 				"app.payment.gateway는 fake 또는 toss여야 합니다: " + properties.gateway());

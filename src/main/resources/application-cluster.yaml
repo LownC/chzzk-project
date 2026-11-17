@@ -1,0 +1,31 @@
+# ⑤ 로컬 오토스케일용 여러 인스턴스 실행 설정. deploy/compose.yaml이 SPRING_PROFILES_ACTIVE=cluster로 켠다.
+# 상태는 모두 인스턴스 밖에 둔다: DB(H2 TCP 서버 컨테이너), 업로드 영상(공유 볼륨), 세션·라이브 방·가짜 결제(Redis).
+spring:
+  datasource:
+    url: jdbc:h2:tcp://${CHZZK_DB_HOST:h2}:9092/chzzk;MODE=MySQL
+    username: sa
+    password: ${CHZZK_DB_PASSWORD}
+    driver-class-name: org.h2.Driver
+  h2:
+    console:
+      enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: update
+  data:
+    redis:
+      host: ${CHZZK_REDIS_HOST:redis}
+      port: ${CHZZK_REDIS_PORT:6379}
+  lifecycle:
+    # 스케일 인 때 처리 중인 요청을 마치고 내려간다.
+    timeout-per-shutdown-phase: 20s
+
+server:
+  port: 8080
+  shutdown: graceful
+
+app:
+  cluster:
+    enabled: true
+  file:
+    upload-dir: ${APP_UPLOAD_DIR:/data/uploads}

@@ -15,7 +15,12 @@
 	const iceServers = (root.dataset.iceServers || '').split(',')
 		.map(url => url.trim()).filter(url => url).map(url => ({urls: url}));
 
+	const SERVICE_RESTARTED = 1012;
+	const RECONNECT_DELAYS_MILLIS = [500, 1000, 2000, 3000, 5000];
+
 	let socket = null;
+	let reconnecting = false;
+	let reconnectAttempt = 0;
 	let connection = null;
 	let pendingCandidates = [];
 	let remoteReady = false;
@@ -94,6 +99,8 @@
 	async function handleMessage(message) {
 		switch (message.type) {
 			case 'watching':
+				reconnecting = false;
+				reconnectAttempt = 0;
 				setStatus('송출자와 연결하는 중입니다.');
 				break;
 			case 'offer':
@@ -105,6 +112,9 @@
 			case 'ended':
 				showEnded();
 				break;
+			case 'reconnect':
+				reconnecting = true;
+				break;
 			case 'error':
 				finished = true;
 				showError(message.message);
@@ -112,14 +122,36 @@
 		}
 	}
 
-	socket = new WebSocket(socketUrl());
-	socket.addEventListener('open', () => send({type: 'watch', broadcastId: broadcastId}));
-	socket.addEventListener('message', event => handleMessage(JSON.parse(event.data)));
-	socket.addEventListener('close', () => {
+	function connect() {
+		socket = new WebSocket(socketUrl());
+		socket.addEventListener('open', () => send({type: 'watch', broadcastId: broadcastId}));
+		socket.addEventListener('message', event => handleMessage(JSON.parse(event.data)));
+		socket.addEventListener('close', handleClose);
+	}
+
+	/**
+	 * (⑤) 서버 인스턴스가 줄어 연결이 끊기면(reconnect 메시지 또는 1012) 다른 인스턴스로 다시 붙어 watch한다.
+	 * 이전 영상 연결은 닫고 송출자에게서 새 Offer를 받는다. 다시 연결이 실패해도 watching을 받을 때까지 정해진 횟수만큼 다시 시도한다.
+	 */
+	function handleClose(event) {
+		if (!finished && (reconnecting || event.code === SERVICE_RESTARTED) && reconnectAttempt < RECONNECT_DELAYS_MILLIS.length) {
+			reconnecting = true;
+			if (connection) {
+				connection.close();
+				connection = null;
+			}
+			pendingCandidates = [];
+			remoteReady = false;
+			setStatus('서버를 옮기는 중입니다. 잠시만 기다려 주세요.');
+			setTimeout(connect, RECONNECT_DELAYS_MILLIS[reconnectAttempt++]);
+			return;
+		}
 		if (!finished) {
 			showError('서버와 연결이 끊어졌습니다. 새로고침해 주세요.');
 		}
-	});
+	}
+
+	connect();
 
 	unmuteButton.addEventListener('click', () => {
 		video.muted = false;

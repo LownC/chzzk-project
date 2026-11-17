@@ -7,15 +7,18 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
  * 이 서버에 붙어 있는 송출자·시청자 연결(WebSocket 세션 ID)을 방송별로 기억한다.
  * 방송 상태의 기준은 DB이고, 이 등록부는 메시지를 어느 연결로 보낼지 정하는 데만 쓴다.
- * 서버 메모리에만 있으므로 서버가 여러 대가 되면 서버 간 메시지 전달이 필요하다(docs/live-streaming.md 6절).
+ * 서버 메모리에만 있으므로 인스턴스가 하나일 때(기본·테스트) 쓴다. 여러 인스턴스(⑤ cluster 프로파일)는
+ * {@link RedisLiveRoomStore}를 쓴다.
  */
 @Component
-public class LiveSessionRegistry {
+@ConditionalOnProperty(name = "app.cluster.enabled", havingValue = "false", matchIfMissing = true)
+public class LiveSessionRegistry implements LiveRoomStore {
 
 	private final Map<Long, Room> rooms = new HashMap<>();
 
@@ -68,6 +71,16 @@ public class LiveSessionRegistry {
 			return Optional.empty();
 		}
 		return Optional.of(new ClosedRoom(room.publisherSessionId(), List.copyOf(room.viewers().values())));
+	}
+
+	@Override
+	public synchronized Optional<List<String>> replacePublisher(long broadcastId, String publisherSessionId) {
+		Room room = rooms.get(broadcastId);
+		if (room == null) {
+			return Optional.empty();
+		}
+		rooms.put(broadcastId, new Room(publisherSessionId, room.viewers()));
+		return Optional.of(List.copyOf(room.viewers().keySet()));
 	}
 
 	public record ClosedRoom(String publisherSessionId, List<String> viewerSessionIds) {

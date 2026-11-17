@@ -24,6 +24,9 @@ extra["h2.version"] = "2.5.252"
 dependencies {
 	implementation("org.springframework.boot:spring-boot-h2console")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+	// ⑤ 여러 인스턴스용 공용 저장소(로그인 세션, 라이브 방 등록부·시그널링 중계). cluster 프로파일에서만 Redis에 연결한다.
+	implementation("org.springframework.boot:spring-boot-starter-data-redis")
+	implementation("org.springframework.session:spring-session-data-redis")
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
