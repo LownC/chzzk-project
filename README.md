@@ -1,9 +1,10 @@
-# 치지직 (chzzk) — 녹화방송, 휴대폰 라이브 송출, 회원·댓글, 도네이션
+# 치지직 (chzzk) — 녹화방송, 휴대폰 라이브 송출, 회원·댓글, 도네이션, 로컬 오토스케일
 
 프로그래머스 데브코스 치지직 서비스 구현 프로젝트입니다.
 녹화해 둔 MP4 영상을 방송으로 등록해 시청하고(Stage 1), 휴대폰 카메라·마이크로 라이브 방송을 송출해 다른 화면에서 시청할 수 있습니다(Stage 2).
 Stage 3에서 회원가입·로그인과 방송 소유자 권한, 방송별 댓글을 더했습니다. 방송 목록·시청·댓글 읽기는 로그인 없이 누구나 할 수 있고, 등록·송출·수정·삭제·댓글 작성은 로그인한 회원만 할 수 있습니다([인증·인가 정책](#인증인가-정책-stage-3)).
 Stage 4에서 방송자를 후원하는 도네이션을 더했습니다. 결제는 토스페이먼츠 **테스트 모드** 흐름(결제 요청 → 서버 승인 확인)으로 구현했고 실제 돈은 오가지 않습니다. 기본 실행은 외부 결제 서비스를 부르지 않는 가짜 게이트웨이로 같은 흐름을 확인합니다([도네이션](#도네이션-stage-4)).
+Stage 5에서 서버를 컨테이너 이미지로 만들어 이 PC의 Docker Compose로 여러 인스턴스를 띄우고, 자체 스케일러가 CPU 사용률에 따라 2~5개 사이에서 자동으로 늘리고 줄이게 했습니다. 로그인 세션·업로드 영상·라이브 상태·댓글·도네이션은 인스턴스 밖의 공용 저장소에 둡니다([로컬 오토스케일](#로컬-오토스케일-stage-5)).
 
 ## 구현 범위
 
@@ -42,6 +43,15 @@ Stage 4에서 방송자를 후원하는 도네이션을 더했습니다. 결제�
 - 중복 방지: 주문번호·결제 키 유일 제약과 조건부 상태 변경으로, 같은 승인 통지나 성공 요청이 반복·동시에 와도 한 번만 적립
 - 방송별 후원 내역(후원자·금액·메시지·시각)과 합계 표시
 - 설계 문서: [docs/donation.md](docs/donation.md)
+
+### Stage 5 — 로컬 오토스케일
+
+- 컨테이너 이미지(`Dockerfile`)와 Docker Compose 다중 인스턴스(`deploy/compose.yaml`), nginx 부하 분산기
+- 자체 스케일러(`scripts/autoscale/autoscaler.ps1`): 인스턴스 CPU 사용률로 최소 2개~최대 5개 사이 자동 스케일 아웃·인
+- 공용 저장소: 로그인 세션·라이브 방 등록부·시그널링 중계·가짜 결제 장부는 Redis, 방송·회원·댓글·후원은 H2 TCP 서버, 업로드 영상은 공용 볼륨
+- 인스턴스가 줄어도 라이브 방송이 끝나지 않음: 송출·시청 화면이 다른 인스턴스로 다시 연결해 이어 감
+- k6 부하 스크립트(`deploy/load/k6-load.js`), 관찰한 인스턴스 수 변화 기록([로컬 오토스케일](#로컬-오토스케일-stage-5))
+- 설계 문서: [docs/autoscale.md](docs/autoscale.md)
 
 ### 제외(이후 단계)
 
@@ -134,6 +144,7 @@ Stage 4에서 방송자를 후원하는 도네이션을 더했습니다. 결제�
 | 검증 | Spring Boot Validation |
 | 빌드 | Gradle(Wrapper 9.8.2), Kotlin DSL(`build.gradle.kts`) |
 | 테스트 | JUnit 5, Spring Boot Test(MockMvc), Spring Security Test |
+| 여러 인스턴스(Stage 5) | Spring Data Redis(Lettuce)·Spring Session Data Redis(`cluster` 프로파일에서만), Docker Compose, nginx 1.28, Redis 7.4, k6 1.0 |
 
 - 라이브러리 버전은 Spring Boot 의존성 관리를 따릅니다. 예외로 H2만 2.5.252로 고정했습니다([H2 버전 고정](#h2-버전-고정-25252) 참고). Lombok은 사용하지 않습니다.
 
@@ -285,6 +296,182 @@ Spring Boot는 `.env`나 `.env.example` 파일을 자동으로 읽지 않습니�
 | 실제 토스페이먼츠 테스트 서버 호출(결제창·승인 API) | NOT_TESTED(실행하지 않음) |
 | 실제 개발 DB를 Stage 4 코드로 열기 | 확인하지 않음. 열면 `donation` 테이블이 추가되므로 먼저 백업 |
 
+## 로컬 오토스케일 (Stage 5)
+
+같은 서버를 Docker Compose로 여러 인스턴스 띄우고, 자체 스케일러가 CPU 사용률을 보고 2~5개 사이에서 자동으로 늘리고 줄입니다. 클라우드에 배포하지 않으며 모든 것이 이 PC의 Docker Desktop에서만 돕니다. 설계는 [docs/autoscale.md](docs/autoscale.md)를 참고하세요.
+
+```text
+브라우저 ──▶ lb (nginx, 127.0.0.1:18090) ──least_conn──▶ app × N (2~5, CPU 0.5개씩)
+                                                          │
+             공용 저장소: h2 (H2 TCP 서버: 방송·회원·댓글·후원)
+                         redis (로그인 세션·라이브 방 등록부·시그널링 중계·가짜 결제 장부)
+                         uploads 볼륨 (업로드 영상)
+autoscaler.ps1 ── docker stats(CPU) ──▶ docker compose up --scale app=N
+```
+
+### 구현 범위와 파일
+
+| 과제 요구 | 파일 |
+| --- | --- |
+| 컨테이너 이미지 | `Dockerfile`, `.dockerignore` |
+| 여러 인스턴스 배포 구성 | `deploy/compose.yaml`(h2·redis·app·lb), `scripts/autoscale/cluster-up.ps1` |
+| 자동 스케일 아웃·인(최소 2, 최대 5, CPU 지표) | `scripts/autoscale/autoscaler.ps1` |
+| 요청 분산 | `deploy/nginx/nginx.conf` |
+| 공용 상태 | `src/main/resources/application-cluster.yaml`, `global/cluster/ClusterConfig.java`(Redis 로그인 세션), `live/RedisLiveRoomStore.java`·`live/RedisLiveMessageRelay.java`(라이브 상태), `payment/RedisFakePaymentLedger.java`(가짜 결제 장부), H2 TCP 서버(방송·댓글·후원), `uploads` 볼륨(영상) |
+| 부하 스크립트 | `deploy/load/k6-load.js` |
+| 환경변수 예시 | `deploy/.env.example` |
+
+- `cluster` 프로파일에서만 Redis를 씁니다(`app.cluster.enabled=true`). 기본 실행(`.\gradlew.bat bootRun`)과 테스트는 Stage 4까지와 같고 Redis가 필요 없습니다.
+- 응답 헤더 `X-Chzzk-Instance`에 요청을 처리한 인스턴스(컨테이너 이름)가 나옵니다.
+- 인스턴스가 줄어 라이브 송출·시청 연결이 끊기면 화면이 다른 인스턴스로 다시 연결하고, 송출 화면은 같은 방송을 이어 갑니다(`resume`). 방송은 끝나지 않습니다.
+- 결제는 계속 가짜 게이트웨이(`APP_PAYMENT_GATEWAY=fake`)만 씁니다. 실제 결제나 외부 결제 서버 호출은 없습니다.
+
+### 준비
+
+- Docker Desktop(Compose v2 포함), JDK 25. 처음 실행할 때 공개 이미지 `eclipse-temurin:25-jre`, `redis:7.4-alpine`, `nginx:1.28-alpine`, `grafana/k6:1.0.0`을 내려받습니다.
+- 포트는 `127.0.0.1:18090`(바꾸려면 `CHZZK_HTTP_PORT`) 하나만 엽니다. H2·Redis·앱 포트는 컨테이너 네트워크 안에서만 열립니다.
+- 클러스터의 DB·영상은 Docker 볼륨(`chzzk-autoscale_h2data`, `_redisdata`, `_uploads`)에 저장되며, 개발용 H2 파일 DB(`chzzk_data`)와 업로드 폴더와는 따로입니다.
+
+### 환경변수 (`deploy/.env`)
+
+`deploy/.env.example`을 `deploy/.env`로 복사하고 값을 바꿉니다. `deploy/.env`는 Git에 올라가지 않습니다.
+
+| 이름 | 의미 | 예시 |
+| --- | --- | --- |
+| `CHZZK_DB_PASSWORD` | 공용 H2 DB(`sa`) 비밀번호. 처음 띄울 때의 값으로 DB가 만들어지므로 이후에도 같은 값을 씁니다. 필수 | `change-me-local-only` |
+| `CHZZK_HTTP_PORT` | 부하 분산기를 열 로컬 포트(127.0.0.1) | `18090` |
+| `APP_LIVE_ICE_SERVERS` | 라이브 STUN/TURN 주소(쉼표 구분). 같은 PC·같은 Wi-Fi면 비워 둠 | 비어 있음 |
+
+컨테이너 안에서는 `deploy/compose.yaml`이 `SPRING_PROFILES_ACTIVE=cluster`, `APP_PAYMENT_GATEWAY=fake`를 지정합니다. 앱은 `CHZZK_DB_HOST`(기본 `h2`), `CHZZK_REDIS_HOST`(기본 `redis`), `CHZZK_REDIS_PORT`(기본 `6379`), `APP_UPLOAD_DIR`(기본 `/data/uploads`)도 읽지만 Compose에서는 바꿀 필요가 없습니다.
+
+### 실행 방법
+
+```powershell
+Copy-Item deploy\.env.example deploy\.env    # 처음 한 번, 비밀번호를 바꿉니다
+.\scripts\autoscale\cluster-up.ps1           # JAR·이미지 빌드 → h2·redis → 앱 1개(테이블 생성) → 앱 2개 → lb
+```
+
+- 준비되면 <http://127.0.0.1:18090> 으로 접속합니다. 회원가입부터 후원까지 Stage 1~4 화면을 그대로 씁니다.
+- 이미지를 이미 만들었다면 `-SkipBuild`로 빌드를 건너뜁니다.
+- 상태 확인: `docker compose -f deploy/compose.yaml --env-file deploy/.env ps`
+
+### 스케일 아웃·인 확인 절차
+
+1. **스케일러 실행**(PowerShell 창 A, 저장소 루트): 10초마다 인스턴스 수와 CPU를 한 줄씩 보여 주고 `scripts/autoscale/autoscaler.log`에도 남깁니다. 멈출 때는 `Ctrl+C`입니다.
+
+   ```powershell
+   .\scripts\autoscale\autoscaler.ps1      # 기본: -Min 2 -Max 5 -ScaleOutPercent 60 -ScaleInPercent 20
+   ```
+
+2. **부하 걸기**(PowerShell 창 B, 저장소 루트): 가상 사용자 60명이 30초 동안 늘어나 3분 동안 목록·로그인 화면을 읽고(데이터를 바꾸지 않음) 20초 동안 줄어듭니다.
+
+   ```powershell
+   docker run --rm --network chzzk-autoscale_default -e BASE_URL=http://lb -v "${PWD}\deploy\load:/scripts:ro" grafana/k6:1.0.0 run /scripts/k6-load.js
+   ```
+
+3. **늘어나는지 확인**: 창 A에 `cpu=`가 60% 이상으로 두 번 연속 찍히면 `-> scale-out to 3`이 나오고, 30초 쿨다운 뒤에도 높으면 4, 5까지 늘어납니다. `docker compose -f deploy/compose.yaml --env-file deploy/.env ps app`에 `app-3`~`app-5`가 보입니다.
+4. **줄어드는지 확인**: 부하가 끝나 CPU가 20% 미만으로 세 번 연속 찍히면 `-> scale-in to 4`, 이어서 3, 2까지 줄고 2에서 멈춥니다. 내려가는 인스턴스는 처리 중인 요청을 마치고 종료됩니다.
+5. **공용 상태 확인**(선택): 여러 번 새로고침하며 개발자 도구의 응답 헤더 `X-Chzzk-Instance`가 바뀌어도 로그인이 유지되고, 다른 인스턴스에서 올린 영상·댓글·후원이 그대로 보이는지 확인합니다.
+
+### 관찰한 인스턴스 수 변화 (2026-11-18)
+
+위 절차를 그대로 실행한 결과입니다(스케일러 기본값, k6 `HOLD=4m`). 스케일러 로그(`autoscaler.log`) 그대로입니다. `cpu`는 인스턴스 CPU 제한(0.5개) 대비 평균 사용률입니다.
+
+```text
+2026-11-18T03:10:13 start min=2 max=5 out>=60% x2 in<20% x3 interval=10s
+2026-11-18T03:10:39 instances=2 cpu=0.4% (high=0 low=3 cooldown=False)
+2026-11-18T03:10:50 instances=2 cpu=99.7% (high=1 low=0 cooldown=False)      ← k6 부하 시작
+2026-11-18T03:11:04 instances=2 cpu=98.6% -> scale-out to 3
+2026-11-18T03:11:16 instances=3 cpu=99.2% (high=1 low=0 cooldown=True)
+2026-11-18T03:11:29 instances=3 cpu=98% (high=2 low=0 cooldown=True)
+2026-11-18T03:11:42 instances=3 cpu=99.5% -> scale-out to 4
+2026-11-18T03:11:55 instances=4 cpu=101.1% (high=1 low=0 cooldown=True)
+2026-11-18T03:12:08 instances=4 cpu=101.6% (high=2 low=0 cooldown=True)
+2026-11-18T03:12:21 instances=4 cpu=101.5% -> scale-out to 5
+2026-11-18T03:12:34 instances=5 cpu=100% (high=1 low=0 cooldown=True)
+...(03:12:47 ~ 03:15:07 instances=5, cpu=102~107%, 최대 5개라 더 늘리지 않음)
+2026-11-18T03:15:19 instances=5 cpu=90.9% (high=14 low=0 cooldown=False)
+2026-11-18T03:15:32 instances=5 cpu=0.8% (high=0 low=1 cooldown=False)       ← k6 부하 끝
+2026-11-18T03:15:45 instances=5 cpu=0.3% (high=0 low=2 cooldown=False)
+2026-11-18T03:15:59 instances=5 cpu=0.2% -> scale-in to 4
+2026-11-18T03:16:11 instances=4 cpu=0.2% (high=0 low=1 cooldown=True)
+2026-11-18T03:16:24 instances=4 cpu=0.2% (high=0 low=2 cooldown=True)
+2026-11-18T03:16:38 instances=4 cpu=0.3% -> scale-in to 3
+2026-11-18T03:16:51 instances=3 cpu=0.3% (high=0 low=1 cooldown=True)
+2026-11-18T03:17:03 instances=3 cpu=0.2% (high=0 low=2 cooldown=True)
+2026-11-18T03:17:17 instances=3 cpu=0.3% -> scale-in to 2
+2026-11-18T03:17:29 instances=2 cpu=0.2% (high=0 low=1 cooldown=True)
+2026-11-18T03:18:19 instances=2 cpu=0.2% (high=0 low=5 cooldown=False)       ← 최소 2개에서 유지
+```
+
+`docker compose ps` 출력(이름·상태):
+
+```text
+# 부하가 끝난 직후(03:15:32)                  # 스케일 인 뒤(03:18)
+chzzk-autoscale-app-1 Up 5 minutes           chzzk-autoscale-app-1 Up 8 minutes
+chzzk-autoscale-app-2 Up 6 minutes           chzzk-autoscale-app-2 Up 9 minutes
+chzzk-autoscale-app-3 Up 4 minutes           chzzk-autoscale-h2-1 Up 16 minutes
+chzzk-autoscale-app-4 Up 3 minutes           chzzk-autoscale-lb-1 Up 9 minutes
+chzzk-autoscale-app-5 Up 3 minutes           chzzk-autoscale-redis-1 Up 16 minutes
+chzzk-autoscale-h2-1 Up 13 minutes
+chzzk-autoscale-lb-1 Up 6 minutes
+chzzk-autoscale-redis-1 Up 13 minutes
+```
+
+k6 결과: 요청 428,535개(초당 약 1,478개), 실패 0%(`http_req_failed 0.00%`), 확인 항목 100% 통과, 응답 시간 중앙값 2.02ms·p95 96.06ms. 인스턴스가 늘어나는 동안에도 실패한 요청이 없었습니다.
+
+**최종 커밋 코드로 다시 실행(03:39~03:45)**: 위 실행 뒤 라이브 다시 연결 부분(`resume` 시청자 목록, 시청 화면 재시도)과 스케일러 로그 쓰기를 고쳤으므로, 최종 이미지로 같은 절차를 한 번 더 실행했습니다(k6 `HOLD=2m`, README의 볼륨 연결 명령). 판단 줄만 옮깁니다.
+
+```text
+2026-11-18T03:39:50 instances=2 cpu=0.4% (high=0 low=2 cooldown=True)
+2026-11-18T03:40:15 instances=2 cpu=102.1% (high=1 low=0 cooldown=False)    ← k6 부하 시작
+2026-11-18T03:40:28 instances=2 cpu=101.1% -> scale-out to 3
+2026-11-18T03:41:07 instances=3 cpu=103.7% -> scale-out to 4
+2026-11-18T03:41:46 instances=4 cpu=104.4% -> scale-out to 5
+2026-11-18T03:42:49 instances=5 cpu=23% (high=0 low=0 cooldown=False)       ← k6 부하 끝
+2026-11-18T03:43:28 instances=5 cpu=0.2% -> scale-in to 4
+2026-11-18T03:44:07 instances=4 cpu=0.3% -> scale-in to 3
+2026-11-18T03:44:45 instances=3 cpu=0.2% -> scale-in to 2
+2026-11-18T03:45:11 instances=2 cpu=0.2% (high=0 low=2 cooldown=True)
+```
+
+k6 결과: 요청 210,594개(초당 약 1,239개), 실패 0%, 확인 항목 100% 통과. `docker compose ps`는 부하 직후 `app-1`~`app-5`, 스케일 인 뒤 `app-1`·`app-2`였습니다.
+
+전체 로그와 출력은 [docs/autoscale-run-2026-11-18.txt](docs/autoscale-run-2026-11-18.txt)에 있습니다.
+
+### 여러 인스턴스 공용 상태 확인 결과 (2026-11-18)
+
+클러스터(앱 2개)에 대해 HTTP 클라이언트와 WebSocket 클라이언트(Node 스크립트)로 확인했습니다. 어느 인스턴스가 처리했는지는 `X-Chzzk-Instance`로 구분했습니다.
+
+| 항목 | 결과 |
+| --- | --- |
+| 요청 분산 | 목록 30번 요청이 두 인스턴스에 15:15로 나뉨 |
+| 로그인 세션(Redis) | 로그인 뒤 등록 화면 20번 요청이 두 인스턴스 모두에서 200(로그인 유지) |
+| 업로드 영상(공용 볼륨) | 한 인스턴스에 올린 영상을 두 인스턴스가 모두 같은 내용(SHA-256 일치)으로 내려줌 |
+| 댓글(공용 DB) | 한 인스턴스에서 쓴 댓글이 두 인스턴스 모두에서 보임 |
+| 도네이션(가짜 결제 장부, Redis) | 결제창 인증을 한 인스턴스가, 성공 주소 승인 확인을 다른 인스턴스가 처리해도 4건 모두 확정, 합계 4,000원 |
+| 라이브 방·시그널링 중계(Redis) | 송출자와 다른 인스턴스에 붙은 시청자가 입장하고 Offer·Answer가 인스턴스 사이로 전달됨 |
+| 인스턴스 종료 중 라이브 | 송출자가 있던 인스턴스를 멈추면 그 인스턴스의 송출·시청 연결이 `reconnect` 메시지와 닫기 코드 1012를 받고, 송출자는 다른 인스턴스에서 `resume`해 방송이 계속됨(방송 중 유지). 남은 인스턴스의 시청자는 그대로, 끊긴 시청자는 다시 입장. 종료(`end`)는 모든 인스턴스의 시청자에게 전달됨(6/6) |
+| 실제 브라우저 시청 화면(데스크톱 Chromium) | 시청 화면이 붙은 인스턴스를 멈추자 화면이 스스로 다시 연결해 재입장(첫 시도 실패 뒤 재시도로 성공, 오류 표시 없음). 송출자 인스턴스를 멈추면 송출자가 `resume` 응답으로 현재 시청자 목록을 받음 |
+
+- 멈춘 직후의 첫 다시 연결은 nginx가 아직 멈춘 인스턴스로 보내 502·504로 실패할 수 있습니다. 화면은 0.5·1·2·3·5초 간격으로 다시 시도하며, 검증에서는 멈춘 뒤 약 1~4초 안에 다시 연결됐습니다.
+- 처음 브라우저 확인에서 "송출자가 끊겨 있는 동안 다시 입장한 시청자를 송출자가 모르는" 문제를 찾아, `resume` 응답에 시청자 목록을 넣고 송출 화면이 이 목록으로 연결을 맞추도록 고친 뒤 다시 확인했습니다.
+
+### 정리(종료)
+
+```powershell
+docker compose -f deploy/compose.yaml --env-file deploy/.env down      # 컨테이너만 지움(DB·Redis·영상 볼륨은 남음)
+docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러스터 볼륨까지 지움(클러스터 데이터 삭제)
+```
+
+### 범위와 한계 (Stage 5)
+
+- 로컬 Docker Compose 전용입니다. Kubernetes HPA, 클라우드 배포는 하지 않습니다.
+- 공용 저장소(H2 TCP 서버, Redis)는 각각 컨테이너 하나이며 이중화·백업은 범위 밖입니다.
+- 클러스터는 `127.0.0.1`의 HTTP로만 엽니다. 휴대폰 송출은 HTTPS가 필요하므로 클러스터에서 확인하지 않았습니다(**NOT_TESTED**). 휴대폰 송출은 Stage 2의 `https` 프로파일 단일 서버로 합니다.
+- 실제 카메라 영상이 오가는 WebRTC 연결은 클러스터에서 확인하지 않았습니다(**NOT_TESTED**). 시그널링 메시지 전달과 다시 연결만 확인했습니다.
+- 실제 토스페이먼츠 테스트 서버 호출은 하지 않았습니다(**NOT_TESTED**).
+
 ## 라이브 송출(②) — 휴대폰 연결과 확인 절차
 
 휴대폰에서 송출하고 PC 등 다른 화면에서 시청합니다. Stage 3부터 송출하려면 휴대폰에서 먼저 로그인해야 하고, 시청은 로그인 없이 됩니다. 영상·음성은 WebRTC로 휴대폰에서 시청자 브라우저로 직접 전달되고, 서버는 연결 협상 메시지만 중계합니다. 자세한 설계는 [docs/live-streaming.md](docs/live-streaming.md)를 참고하세요.
@@ -416,7 +603,18 @@ chzzk_project/
 - 따라서 테스트를 실행해도 개발용 H2 파일 DB와 업로드 폴더는 바뀌지 않습니다.
 - `H2SchemaConnectionRetirementTests`만 다른 테스트와 겹치지 않는 인메모리 DB(`jdbc:h2:mem:h2-schema-retirement-regression`)를 따로 씁니다. 커넥션 풀의 연결을 강제로 교체하기 때문입니다.
 - 라이브 시그널링은 실제 서버를 띄워 WebSocket 클라이언트로 검증합니다(메시지 전달·검증·방송 간 격리·연결 종료). 실제 카메라와 WebRTC 영상 연결은 자동 테스트로 확인하지 않으므로 위 "송출·시청 확인 절차"로 직접 확인합니다.
-- Stage 4 기준 39개 테스트 클래스, 239개 테스트가 통과합니다(실패·건너뜀 0). Stage 4 도네이션 테스트는 [Stage 4 검증 결과](#stage-4-검증-결과-2026-11-18)에 정리했습니다. 결제 서비스는 가짜 게이트웨이와 네트워크 없는 가짜 HTTP 서버만 쓰며 외부로 나가는 요청이 없습니다.
+- Stage 5에서 공용 저장소 규칙 테스트를 더했습니다. 라이브 방 등록부(`LiveRoomStoreContract`: 입장·정원·동시 입장·퇴장·송출자 교체·방 닫기)와 가짜 결제 장부(`FakePaymentLedgerContract`: 한 번만 승인·불일치·거절·동시 승인)는 같은 테스트를 메모리 구현과 Redis 구현에 모두 돌립니다. `LiveSignalingResumeServerTests`는 송출 이어 가기(`resume`)의 허용·거절과 인스턴스 종료 때의 `reconnect` 안내를 실제 서버로 확인합니다.
+- Redis 구현 테스트(`RedisLiveRoomStoreTests`, `RedisFakePaymentLedgerTests`)는 Redis가 있어야 하므로 환경변수 `CHZZK_TEST_REDIS_PORT`를 지정했을 때만 실행되고, 지정하지 않으면 건너뜁니다. 실행 방법:
+
+  ```powershell
+  docker run --rm -d --name chzzk-test-redis -p 127.0.0.1:16379:6379 redis:7.4-alpine
+  $env:CHZZK_TEST_REDIS_PORT = "16379"
+  .\gradlew.bat clean test
+  docker stop chzzk-test-redis
+  ```
+
+- Stage 5 기준 44개 테스트 클래스, 272개 테스트입니다. Redis 없이 실행하면 257개 통과·Redis 구현 15개 건너뜀(실패 0), `CHZZK_TEST_REDIS_PORT`를 지정하면 272개 모두 통과(실패·건너뜀 0)합니다(2026-11-18 확인).
+- Stage 4 기준 39개 테스트 클래스, 239개 테스트가 통과했습니다(실패·건너뜀 0). Stage 4 도네이션 테스트는 [Stage 4 검증 결과](#stage-4-검증-결과-2026-11-18)에 정리했습니다. 결제 서비스는 가짜 게이트웨이와 네트워크 없는 가짜 HTTP 서버만 쓰며 외부로 나가는 요청이 없습니다.
 - Stage 3 기준 34개 테스트 클래스, 199개 테스트가 통과했습니다(실패·건너뜀 0). Stage 3에서 추가·변경한 주요 테스트는 다음과 같습니다.
   - `MemberAuthenticationTests`: 회원가입(BCrypt 저장·입력 검증·중복·CSRF), 로그인 성공·실패, 로그아웃과 세션 폐기, 헤더 로그인 상태
   - `SessionServerTests`(실제 서버): 로그인 전 세션 ID로는 로그인 상태가 아님(세션 고정 방어), 만료·알 수 없는 세션은 비로그인 처리, 로그아웃 뒤 세션 무효
