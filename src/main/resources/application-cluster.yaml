@@ -16,6 +16,9 @@ spring:
     redis:
       host: ${CHZZK_REDIS_HOST:redis}
       port: ${CHZZK_REDIS_PORT:6379}
+      # Redis가 멈추면 요청이 기본 60초 동안 매달리지 않고 2초 안에 실패하게 한다(docs/autoscale.md 3.2 "Redis 장애").
+      connect-timeout: 2s
+      timeout: 2s
   lifecycle:
     # 스케일 인 때 처리 중인 요청을 마치고 내려간다.
     timeout-per-shutdown-phase: 20s

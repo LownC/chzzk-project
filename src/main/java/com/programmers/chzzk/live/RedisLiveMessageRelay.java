@@ -1,9 +1,12 @@
 package com.programmers.chzzk.live;
 
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -26,7 +29,7 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @Configuration
 @ConditionalOnProperty(name = "app.cluster.enabled", havingValue = "true")
-public class RedisLiveMessageRelay implements LiveMessageRelay, MessageListener {
+public class RedisLiveMessageRelay implements LiveMessageRelay, MessageListener, DisposableBean {
 
 	private static final Logger log = LoggerFactory.getLogger(RedisLiveMessageRelay.class);
 
@@ -35,6 +38,12 @@ public class RedisLiveMessageRelay implements LiveMessageRelay, MessageListener 
 	private final StringRedisTemplate redis;
 	private final JsonMapper jsonMapper;
 	private final ObjectProvider<LiveSignalingHandler> handler;
+	/**
+	 * 받은 중계 메시지를 받은 순서대로 하나씩 전달한다. 리스너 컨테이너의 기본 실행기는 메시지마다 새 스레드를 써서,
+	 * 같은 연결로 가는 "ended"와 연결 닫기, Offer와 ICE 후보의 순서가 바뀔 수 있다(클러스터 검증에서 종료 안내가 사라진 원인).
+	 */
+	private final ExecutorService deliveryExecutor = Executors.newSingleThreadExecutor(
+		Thread.ofPlatform().name("live-signal-relay").daemon().factory());
 
 	public RedisLiveMessageRelay(StringRedisTemplate redis, JsonMapper jsonMapper,
 		ObjectProvider<LiveSignalingHandler> handler) {
@@ -47,6 +56,7 @@ public class RedisLiveMessageRelay implements LiveMessageRelay, MessageListener 
 	public RedisMessageListenerContainer liveSignalListenerContainer(RedisConnectionFactory connectionFactory) {
 		RedisMessageListenerContainer container = new RedisMessageListenerContainer();
 		container.setConnectionFactory(connectionFactory);
+		container.setTaskExecutor(deliveryExecutor);
 		container.addMessageListener(this, new ChannelTopic(CHANNEL));
 		return container;
 	}
@@ -77,6 +87,11 @@ public class RedisLiveMessageRelay implements LiveMessageRelay, MessageListener 
 		} else {
 			localHandler.deliverLocal(target, relayed.path("payload").asString(""));
 		}
+	}
+
+	@Override
+	public void destroy() {
+		deliveryExecutor.shutdown();
 	}
 
 }

@@ -2,7 +2,8 @@
 #   .\gradlew.bat bootJar
 #   docker build -t chzzk-app:local .
 # 같은 이미지를 앱 인스턴스와 H2 TCP 서버(공용 DB) 컨테이너가 함께 쓴다(deploy/compose.yaml).
-FROM eclipse-temurin:25-jre
+# 다시 빌드해도 같은 기반 이미지를 쓰도록 태그와 함께 digest(여러 아키텍처 목록)를 고정한다.
+FROM eclipse-temurin:25-jre@sha256:945247f9d092703e0c6be92243ef3c51640229e23ab34d353c8dcdc73e6cd4e6
 
 WORKDIR /app
 RUN groupadd --system chzzk \
