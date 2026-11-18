@@ -8,8 +8,8 @@
 | --- | --- |
 | 서버를 컨테이너 이미지로 빌드 | `Dockerfile`(eclipse-temurin:25-jre, digest 고정, 실행 JAR 하나, 비root 사용자), `.dockerignore`. 공개 이미지 4개는 모두 태그와 digest를 함께 고정(README "준비") |
 | 로컬 클러스터·오케스트레이터에서 여러 인스턴스 실행 | Docker Compose: `deploy/compose.yaml`의 `app` 서비스를 `--scale app=N`으로 여러 개 실행 |
-| CPU·요청 수 같은 지표로 최소~최대 범위에서 자동 스케일 아웃·인(자체 스케일러 허용) | `scripts/autoscale/autoscaler.ps1`: `docker stats`의 CPU 사용률(컨테이너 CPU 제한 대비)을 10초마다 보고 2~5개 사이에서 1개씩 늘리고 줄임 |
-| 인스턴스 앞에서 요청 분산 | `deploy/nginx/nginx.conf`: nginx `least_conn`, Docker DNS로 `app` 이름을 5초마다 다시 조회(`resolve`) |
+| CPU·요청 수 같은 지표로 최소~최대 범위에서 자동 스케일 아웃·인(자체 스케일러 허용) | `scripts/autoscale/autoscaler.ps1`: `docker stats`의 CPU 사용률(컨테이너 CPU 제한 대비)을 10초마다 보고 2~5개 사이에서 1개씩 늘리고 줄임. 줄일 때는 부하 분산기에서 먼저 빼고 내림(3.1) |
+| 인스턴스 앞에서 요청 분산 | `deploy/nginx/nginx.conf`: nginx `least_conn`. 분산 대상은 스케일러가 쓰는 `deploy/nginx/upstream.d/app-servers.conf`(생성 파일, `scripts/autoscale/lb-upstream.ps1`) |
 | 세션·업로드 영상·라이브 상태·댓글·도네이션을 공용 외부 저장소에 | 아래 2절. 로그인 세션·라이브 방·시그널링 중계·가짜 결제 장부는 Redis, 방송·회원·댓글·후원은 H2 TCP 서버, 업로드 영상은 공용 볼륨 |
 | 부하 발생 스크립트 | `deploy/load/k6-load.js`(k6, 컨테이너로 실행) |
 | 클라우드 배포 없음 | 모든 컨테이너는 이 PC의 Docker Desktop에서만 돌고, 부하 분산기 포트는 `127.0.0.1`에만 연다 |
@@ -18,7 +18,7 @@
 
 ```text
 브라우저 ──▶ lb (nginx, 127.0.0.1:18090)
-               │ least_conn, app 이름을 5초마다 DNS 재조회
+               │ least_conn, 대상 목록은 스케일러가 관리(준비된 인스턴스만, 내리기 전에 먼저 뺌)
                ▼
             app × N (2~5, CPU 0.5개·메모리 768MB씩, cluster 프로파일)
                │                    │                   │
@@ -29,7 +29,8 @@
                               시그널링 중계(pub/sub)
                               가짜 결제 장부
                  ▲
-   autoscaler.ps1 ── docker stats(CPU) → docker compose up --scale app=N
+   autoscaler.ps1 ── docker stats(CPU) → 늘림: docker compose up --scale app=N / 줄임: lb에서 빼고 docker stop
+                  └─ lb 대상 목록(upstream.d/app-servers.conf) 갱신 → nginx reload
 ```
 
 | 상태 | 한 서버(기본, ①~④) | 여러 인스턴스(cluster 프로파일, ⑤) |
@@ -66,7 +67,7 @@ WebSocket 연결은 처음 붙은 인스턴스에 머문다. 송출자와 시청
 스케일 인으로 인스턴스가 내려가면 그 인스턴스의 WebSocket 연결은 끊긴다. 이때 방송이 끝나지 않도록 했다.
 
 ```text
-docker compose (scale-in) ─SIGTERM─▶ app
+autoscaler.ps1 (scale-in): 대상 목록에서 뺌 → nginx reload → 5초 대기 → docker stop ─SIGTERM─▶ app
   LiveSignalingHandler#onApplicationEvent(ContextClosedEvent)
     ├─ 이 인스턴스의 모든 연결에 {"type":"reconnect"} 전송 후 닫기 코드 1012(SERVICE_RESTARTED)로 닫음
     └─ 송출 연결이 닫혀도 방송을 끝내지 않음(방송 상태는 DB, 방 등록부는 Redis에 그대로)
@@ -79,7 +80,10 @@ docker compose (scale-in) ─SIGTERM─▶ app
 - 다시 연결하지 못하면(5번 실패) 송출 화면은 방송 종료 안내를 보이고, 방송은 ②의 생존 신호 만료(30초)로 정리된다.
 - 생존 신호 점검은 모든 인스턴스에서 돌지만, 방 닫기는 Redis에서 한 번만 성공하므로 종료 알림은 한 번만 간다.
 - 송출자가 다시 연결하면 `resumed`에 지금 방에 있는 시청자 ID 목록(`viewerIds`)을 실어 보낸다. 송출자가 끊겨 있는 동안 다른 인스턴스로 옮겨 다시 입장한 시청자의 입장 알림은 사라진 연결로 가서 송출 화면에 닿지 않기 때문이다(클러스터 검증에서 실제로 확인한 문제). 송출 화면은 이 목록으로 연결이 없는 시청자에게 새 Offer를 보내고, 목록에 없는 시청자의 연결은 닫는다(`syncViewers`).
-- nginx는 내려간 인스턴스를 DNS 재조회(최대 5초) 전까지 분산 대상에 남겨 둘 수 있다. 연결 대기 시간을 기본 60초에서 2초로 줄였다(`proxy_connect_timeout 2s`, 실패 시 `proxy_next_upstream`). 그래도 멈춘 직후의 첫 다시 연결은 502·504로 실패할 수 있었고, 화면은 정해진 간격(0.5·1·2·3·5초)으로 다시 시도해 검증에서는 멈춘 뒤 약 1~4초 안에 다시 연결됐다. 2초로 줄이기 전에는 첫 시도가 오래 기다린 뒤 504로 끝났다. 오토스케일러로 스케일 인할 때도 같아서, 인스턴스가 빠진 직후 약 2초 동안 일반 요청도 502(nginx `no live upstreams`)로 끝날 수 있었다(2차 검증에서 스케일 인 한 번마다 1~2건). `max_fails=0`으로 바꿔도 같아서 되돌렸고, 내리기 전에 부하 분산기에서 먼저 빼는 처리는 범위에 넣지 않았다.
+- **스케일 인 드레이닝.** 처음에는 nginx가 Docker DNS로 `app` 이름을 5초마다 다시 조회(`resolve`)해 분산 대상을 바꿨다. 이 방식에서는 스케일 인 직후 502가 났다(2차 검증에서 스케일 인 한 번마다 1~2건, nginx `no live upstreams`).
+  - **원인(재현으로 확인).** 컨테이너가 내려가면 Docker DNS는 곧바로 그 주소를 뺐지만(nginx 컨테이너 안에서 0.1초 간격으로 조회해 확인), nginx의 대상 목록에는 내려간 인스턴스가 12초 넘게 남아 연결 거부(111)가 이어졌다. `least_conn`은 열린 연결이 0개인 그 인스턴스들을 먼저 고르므로, 5→2로 한꺼번에 줄였을 때 한 요청이 다시 시도 3번을 모두 내려간 인스턴스에 써서 502로 끝났다. 부하 중에는 남은 인스턴스도 연결 대기(2초) 실패로 잠시 빠져 모든 대상이 빠진 상태(`no live upstreams`)가 됐다. `max_fails=0`으로는 고쳐지지 않았다(대상 목록 자체가 늦게 바뀌는 문제라서).
+  - **해결.** DNS 재조회를 없애고 스케일러가 대상 목록 파일을 직접 쓴다(`scripts/autoscale/lb-upstream.ps1`, nginx는 `upstream.d/app-servers.conf`를 `include`). 새 인스턴스는 부하 분산기 컨테이너 안에서 직접 요청해 200이 나온 뒤에야 넣는다. 내릴 인스턴스(아직 대상에 못 든 것, 없으면 가장 나중에 만든 것)는 먼저 목록에서 빼고 `nginx -t` 뒤 `nginx -s reload` 하고, 5초(`-DrainSeconds`) 기다린 다음 `docker stop -t 30`·`docker rm` 한다. reload는 처리 중인 요청과 열린 WebSocket을 끊지 않으므로(옛 worker가 끝날 때까지 맡음), 새 요청은 내려갈 인스턴스로 가지 않고 이미 받은 요청은 앱의 graceful shutdown으로 마친다. 남은 대상이 없게 되는 스케일 인은 하지 않는다.
+  - 목록 파일은 매 회차 실행 중인 컨테이너와 맞춘다(없어진 것은 빼고, 답하는 새 것은 넣음). 스케일러 밖에서 인스턴스가 갑자기 죽는 경우에는 그대로 `max_fails=1`·`proxy_next_upstream`(연결 대기 2초, 멱등 요청 최대 3번)이 다른 인스턴스로 보낸다. 이때(예: `docker stop`으로 직접 멈춘 경우) 첫 다시 연결은 502·504로 실패할 수 있고, 라이브 화면은 정해진 간격(0.5·1·2·3·5초)으로 다시 시도해 약 1~4초 안에 다시 연결됐다.
 - `least_conn`은 열린 연결 수가 적은 인스턴스로 보낸다. 라이브 WebSocket처럼 오래 열린 연결이 한쪽에 있으면, 순서대로 하나씩 보내는 요청은 다른 쪽으로 몰릴 수 있다(동시 요청이 많으면 고르게 나뉜다).
 
 ### 3.2 연결 소유, 중복, Redis 장애
@@ -129,9 +133,12 @@ docker compose (scale-in) ─SIGTERM─▶ app
 | `IntervalSeconds` | 10 | 측정 간격 |
 | `CooldownSeconds` | 30 | 바꾼 뒤 다시 바꾸지 않는 시간 |
 | `CpuLimit` | 0.5 | `compose.yaml`의 `cpus`. `docker stats` CPU %를 이 값으로 나눠 제한 대비 사용률로 봄 |
+| `DrainSeconds` | 5 | 줄일 때 부하 분산기에서 뺀 뒤 인스턴스를 내리기까지 기다리는 시간 |
+| `UpstreamFile` | `deploy/nginx/upstream.d/app-servers.conf` | 부하 분산 대상 목록(생성 파일, Git 제외) |
 
 - 평균 CPU는 `docker stats --no-stream`으로 잰 app 컨테이너들의 CPU %를 평균한 값이다.
-- 인스턴스 수는 `docker compose up -d --no-build --no-recreate --scale app=N app`으로 바꾼다. 늘릴 때 기존 인스턴스는 다시 만들지 않고, 줄일 때는 Compose가 번호가 큰 컨테이너부터 SIGTERM으로 내린다(검증에서 app-5 → app-4 → app-3 순서로 내려감)(`stop_grace_period: 30s`, 앱은 `server.shutdown: graceful`).
+- 늘릴 때는 `docker compose up -d --no-build --no-recreate --scale app=N app`으로 기존 인스턴스는 그대로 두고 하나를 더 띄운다. 새 인스턴스는 요청에 답하면 다음 회차에 부하 분산 대상에 들어간다.
+- 줄일 때는 Compose에 맡기지 않고 스케일러가 고른 인스턴스를 부하 분산기에서 먼저 뺀 뒤 `docker stop -t 30`(SIGTERM, 앱은 `server.shutdown: graceful`)·`docker rm` 한다(3.1 "스케일 인 드레이닝"). 다음에 늘릴 때 Compose는 비어 있는 번호로 새 컨테이너를 만든다.
 - 늘리는 쪽은 2번, 줄이는 쪽은 3번 연속을 요구하고 쿨다운을 두어, 잠깐 튀는 값에 흔들리지 않게 했다.
 - 판단마다 시각·인스턴스 수·CPU를 로그 파일(기본 `scripts/autoscale/autoscaler.log`, Git 제외)과 화면에 남긴다. 다른 프로그램이 로그 파일을 잠가 쓰지 못하면 경고만 하고 계속 돈다(검증 중 `tail -f`가 파일을 잡아 스케일러가 멈춘 것을 보고 고침).
 - Windows PowerShell 5.1은 docker가 stderr에 쓰는 진행 메시지를 오류로 바꿀 수 있어, 두 스크립트는 docker 호출의 성공 여부를 종료 코드로만 판단한다. 한글 메시지가 깨지지 않도록 스크립트는 UTF-8(BOM)로 저장한다.

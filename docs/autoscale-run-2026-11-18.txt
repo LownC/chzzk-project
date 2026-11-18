@@ -419,3 +419,143 @@ chzzk-autoscale-redis-1 Up 6 minutes
 2026/11/17 23:31:22 [error] 55#55: *747298 no live upstreams while connecting to upstream, request: "GET /broadcasts HTTP/1.1", upstream: "http://chzzk_app/broadcasts", host: "127.0.0.1:18090"
 2026/11/17 23:31:59 [error] 55#55: *747321 no live upstreams while connecting to upstream, request: "GET /ws/live HTTP/1.1", upstream: "http://chzzk_app/ws/live", host: "127.0.0.1:18090"
 172.20.0.1 - - [17/Nov/2026:23:31:59 +0000] "GET /ws/live HTTP/1.1" 502 157 "-" "-"
+
+# 3차 검증: 스케일 인 드레이닝 (2026-11-18, 시각은 로그마다 UTC 또는 KST 그대로)
+
+## 재현: 옛 구성(nginx resolve)에서 5→2 스케일 인 (repro-scale + 확인 요청 4개 + nginx 컨테이너 안 DNS 0.1초 조회)
+### 확인 요청 결과
+{"total":18135,"statuses":{"200":18134,"502":1},"upstreams":{"172.20.0.4:8080":9693,"172.20.0.6:8080":7103,"172.20.0.7:8080":521,"172.20.0.9:8080":387,"172.20.0.8:8080":447},"failures":["01:08:49.023 502 upstream=172.20.0.9:8080, 172.20.0.7:8080, 172.20.0.8:8080 3ms"]}
+
+### Docker DNS 응답 변화(같은 응답 연속 횟수, 주소 목록)
+     64 @  172.20.0.4 172.20.0.6
+      2 @  172.20.0.4 172.20.0.6 172.20.0.7
+      1 @  172.20.0.4 172.20.0.6 172.20.0.7 172.20.0.8
+    421 @  172.20.0.4 172.20.0.6 172.20.0.7 172.20.0.8 172.20.0.9
+      1 @  172.20.0.4 172.20.0.6 172.20.0.7
+    511 @  172.20.0.4 172.20.0.6
+### nginx 오류 로그(502 전후, UTC)
+2026/11/18 01:08:49 [error] *5471 connect() failed (111: Connection refused) upstream: http://172.20.0.9:8080/broadcasts
+2026/11/18 01:08:49 [error] *5471 connect() failed (111: Connection refused) upstream: http://172.20.0.7:8080/broadcasts
+2026/11/18 01:08:49 [error] *5471 connect() failed (111: Connection refused) upstream: http://172.20.0.8:8080/broadcasts
+172.20.0.1 - - [18/Nov/2026:01:08:49 +0000] "GET /broadcasts HTTP/1.1" 502 157 "-" "node"
+2026/11/18 01:08:55 [error] *5472 connect() failed (111: Connection refused) upstream: http://172.20.0.8:8080 / 172.20.0.7:8080 (다시 시도로 200)
+2026/11/18 01:09:01 [error] *5474 connect() failed (111: Connection refused) upstream: http://172.20.0.7:8080 (다시 시도로 200)
+
+## 고친 뒤: 자동 스케일 2→5→2 (기본 설정, k6 VUS 60, k6 컨테이너 --cpus 2 --memory 512m)
+### autoscaler.log
+2026-11-18T10:18:25 start min=2 max=5 out>=60% x2 in<20% x3 interval=10s
+2026-11-18T10:18:34 lb targets=2 [chzzk-autoscale-app-1 chzzk-autoscale-app-2]
+2026-11-18T10:18:37 instances=2 cpu=4.5% (high=0 low=1 cooldown=False)
+2026-11-18T10:18:50 instances=2 cpu=8.2% (high=0 low=2 cooldown=False)
+2026-11-18T10:19:03 instances=2 cpu=6% (high=0 low=3 cooldown=False)
+2026-11-18T10:19:17 instances=2 cpu=98.6% (high=1 low=0 cooldown=False)
+2026-11-18T10:19:32 instances=2 cpu=97.6% -> scale-out to 3
+2026-11-18T10:19:50 instances=3 cpu=99.2% (high=1 low=0 cooldown=True)
+2026-11-18T10:20:06 lb targets=3 [chzzk-autoscale-app-1 chzzk-autoscale-app-2 chzzk-autoscale-app-3]
+2026-11-18T10:20:10 instances=3 cpu=96.6% -> scale-out to 4
+2026-11-18T10:20:28 instances=4 cpu=97.4% (high=1 low=0 cooldown=True)
+2026-11-18T10:20:43 lb targets=4 [chzzk-autoscale-app-1 chzzk-autoscale-app-2 chzzk-autoscale-app-3 chzzk-autoscale-app-4]
+2026-11-18T10:20:47 instances=4 cpu=97.6% -> scale-out to 5
+2026-11-18T10:21:06 instances=5 cpu=99% (high=1 low=0 cooldown=True)
+2026-11-18T10:21:24 lb targets=5 [chzzk-autoscale-app-1 chzzk-autoscale-app-2 chzzk-autoscale-app-3 chzzk-autoscale-app-4 chzzk-autoscale-app-5]
+2026-11-18T10:21:27 instances=5 cpu=98.3% (high=2 low=0 cooldown=False)
+2026-11-18T10:21:42 instances=5 cpu=103.7% (high=3 low=0 cooldown=False)
+2026-11-18T10:21:56 instances=5 cpu=6.9% (high=0 low=1 cooldown=False)
+2026-11-18T10:22:10 instances=5 cpu=12.5% (high=0 low=2 cooldown=False)
+2026-11-18T10:22:26 lb drain chzzk-autoscale-app-5 (172.20.0.10), stop after 5s
+2026-11-18T10:22:32 instances=5 cpu=1.8% -> scale-in to 4 (removed chzzk-autoscale-app-5)
+2026-11-18T10:22:46 instances=4 cpu=2.5% (high=0 low=1 cooldown=True)
+2026-11-18T10:23:00 instances=4 cpu=2.5% (high=0 low=2 cooldown=True)
+2026-11-18T10:23:16 lb drain chzzk-autoscale-app-4 (172.20.0.9), stop after 5s
+2026-11-18T10:23:22 instances=4 cpu=1.7% -> scale-in to 3 (removed chzzk-autoscale-app-4)
+2026-11-18T10:23:36 instances=3 cpu=1.3% (high=0 low=1 cooldown=True)
+2026-11-18T10:23:49 instances=3 cpu=1.3% (high=0 low=2 cooldown=True)
+2026-11-18T10:24:05 lb drain chzzk-autoscale-app-3 (172.20.0.8), stop after 5s
+2026-11-18T10:24:10 instances=3 cpu=1.5% -> scale-in to 2 (removed chzzk-autoscale-app-3)
+2026-11-18T10:24:24 instances=2 cpu=2.1% (high=0 low=1 cooldown=True)
+2026-11-18T10:24:36 instances=2 cpu=1.7% (high=0 low=2 cooldown=True)
+2026-11-18T10:24:50 instances=2 cpu=0.5% (high=0 low=3 cooldown=False)
+### 확인 요청(목록, 2개 동시, 250ms 간격)
+{"total":2648,"statuses":{"200":2648},"upstreams":{"172.20.0.6:8080":984,"172.20.0.4:8080":988,"172.20.0.8:8080":373,"172.20.0.9:8080":235,"172.20.0.10:8080":68},"failures":[]}
+
+### 세션·라이브 관찰 요약
+{"probes":113,"sessionFail":0,"liveFail":0,"sessionInstances":5,"maxApps":5,"appsSeen":[2,3,4,5,4,3,2],"pubReconnects":0,"pubResumed":0,"pubResumeFail":0,"viewerRewatch":2,"offersToViewer":15,"answersToPub":15,"endedPub":true,"endedViewer":true,"endedViewers":3,"offersAfterRewatch":2,"extrasOnNewInstances":2,"broadcastId":3,"viewersAtEnd":["viewer@43c02204e1f8(ended)","extra1@002f100e011b(rewatched)(ended)","extra2@43c02204e1f8(rewatched)(ended)"]}
+### 관찰 사건(배치·재연결)
+01:20:56 extra1 placed @2b4f567216ed
+01:20:56 extra2 placed @2b4f567216ed
+01:24:10 extra1@2b4f567216ed got reconnect
+01:24:10 extra1@2b4f567216ed closed 1012
+01:24:10 extra2@2b4f567216ed got reconnect
+01:24:10 extra2@2b4f567216ed closed 1012
+01:24:10 extra1 re-watch @002f100e011b
+01:24:10 extra2 re-watch @43c02204e1f8
+### k6 요약
+checks_failed......................: 0.00%   0 out of 132750
+http_req_duration.......................................................: avg=48.71ms  min=349.29µs med=35.74ms  max=1.29s p(90)=99.28ms  p(95)=150.14ms
+http_req_failed.........................................................: 0.00%  0 out of 132750
+http_reqs...............................................................: 132750 780.869441/s
+vus_max.................................................................: 60     min=60          max=60
+### nginx
+10:24:55 nginx access lines=135644 5xx=0 502=0
+### docker compose ps (부하 직후 / 스케일 인 뒤)
+chzzk-autoscale-app-1 Up 6 minutes
+chzzk-autoscale-app-2 Up 5 minutes
+chzzk-autoscale-app-3 Up 2 minutes
+chzzk-autoscale-app-4 Up About a minute
+chzzk-autoscale-app-5 Up About a minute
+chzzk-autoscale-h2-1 Up 6 minutes
+chzzk-autoscale-lb-1 Up 6 minutes
+chzzk-autoscale-redis-1 Up 6 minutes
+chzzk-autoscale-app-1 Up 9 minutes
+chzzk-autoscale-app-2 Up 8 minutes
+chzzk-autoscale-h2-1 Up 9 minutes
+chzzk-autoscale-lb-1 Up 9 minutes
+chzzk-autoscale-redis-1 Up 9 minutes
+
+## 고친 뒤: 부하 중 강제 스케일 인 5→4→3→2 (k6 VUS 30, --cpus 2 --memory 512m, -ScaleInPercent 100000 -ScaleInAfter 1 -CooldownSeconds 15)
+### autoscaler.log (스케일 인 부분)
+2026-11-18T10:27:29 start min=2 max=5 out>=1000000% x2 in<100000% x1 interval=5s
+2026-11-18T10:27:44 lb targets=5 [chzzk-autoscale-app-1 chzzk-autoscale-app-2 chzzk-autoscale-app-3 chzzk-autoscale-app-4 chzzk-autoscale-app-5]
+2026-11-18T10:27:50 lb drain chzzk-autoscale-app-4 (172.20.0.7), stop after 5s
+2026-11-18T10:27:56 instances=5 cpu=99.2% -> scale-in to 4 (removed chzzk-autoscale-app-4)
+2026-11-18T10:28:05 instances=4 cpu=100.4% (high=0 low=1 cooldown=True)
+2026-11-18T10:28:16 lb drain chzzk-autoscale-app-3 (172.20.0.8), stop after 5s
+2026-11-18T10:28:23 instances=4 cpu=101.3% -> scale-in to 3 (removed chzzk-autoscale-app-3)
+2026-11-18T10:28:31 instances=3 cpu=99.6% (high=0 low=1 cooldown=True)
+2026-11-18T10:28:43 lb drain chzzk-autoscale-app-5 (172.20.0.9), stop after 5s
+2026-11-18T10:28:49 instances=3 cpu=101.2% -> scale-in to 2 (removed chzzk-autoscale-app-5)
+2026-11-18T10:28:57 instances=2 cpu=100.5% (high=0 low=1 cooldown=True)
+2026-11-18T10:29:06 instances=2 cpu=99.6% (high=0 low=2 cooldown=False)
+### 확인 요청
+{"total":4542,"statuses":{"200":4542},"upstreams":{"172.20.0.4:8080":1962,"172.20.0.6:8080":2423,"172.20.0.7:8080":5,"172.20.0.9:8080":118,"172.20.0.8:8080":34},"failures":[]}
+
+### k6 요약
+checks_failed......................: 0.00%   0 out of 143892
+http_req_duration.......................................................: avg=11.32ms min=62.26µs med=2.09ms  max=587.54ms p(90)=44.94ms  p(95)=49.28ms
+http_req_failed.........................................................: 0.00%  0 out of 143892
+http_reqs...............................................................: 143892 958.956357/s
+vus_max.................................................................: 30     min=30          max=30
+### nginx
+10:31:35 nginx access lines=148434 5xx=0 error-log lines=0
+
+## 회귀
+verify-cluster 5/5, verify-live 6/6, verify-extra 6/6 통과
+PASS lb distributes /broadcasts :: {"002f100e011b":15,"43c02204e1f8":15}
+PASS login session valid on every instance (Redis session) :: status200=true instances={"002f100e011b":10,"43c02204e1f8":10}
+PASS uploaded video served by every instance (shared volume) :: upload on 43c02204e1f8 status=302 -> id=4 src=/videos/dc5ad2d9-0d95-450b-bbc9-24360d27a09e.mp4; served={"43c02204e1f8":6,"002f100e011b":
+PASS comment visible from every instance (shared DB) :: posted on 002f100e011b status=302; read={"43c02204e1f8":5,"002f100e011b":5}
+PASS donation confirmed across instances (Redis fake ledger) :: 002f100e011b->43c02204e1f8:DONE 002f100e011b->43c02204e1f8:DONE 002f100e011b->43c02204e1f8:DONE 002f100e011b->43c02204e1f8:DONE ; total 
+PASS viewer on another instance joins publisher room (Redis room store + relay) :: publisher@002f100e011b viewers=viewer0@43c02204e1f8,viewer1@43c02204e1f8,viewer2@002f100e011b
+PASS offer/answer relayed between instances :: 002f100e011b <-> 43c02204e1f8
+PASS stopping an instance sends reconnect + close 1012 to its clients :: stopped 002f100e011b after 1139ms; publisher close=1012 (skipped before reconnect: ); viewer closes=[1012]
+PASS publisher resumes on surviving instance, broadcast still live :: resumed on 43c02204e1f8
+PASS viewers on surviving instance keep watching, others re-watch :: kept=viewer0,viewer1 rewatched=viewer2-again@43c02204e1f8
+PASS end reaches viewers on every instance :: 3 viewers
+PASS 20 concurrent comments through several instances stored once each (H2 TCP) :: statuses=302 instances=2 unique=20 shown=20
+PASS concurrent success requests confirm each donation once (total 3,000 for 3 orders) :: order0: hits=302 instances=2 done=true | order1: hits=302 instances=2 done=true | order2: hits=302 instances=2
+PASS during Redis outage requests fail fast with a generic error page (no internal message) :: anon=200/12ms,200/11ms,200/15ms,200/16ms logged=500/2258ms,500/2051ms,500/2258ms,500/2051ms maxMs=2258 in
+PASS during Redis outage a new viewer gets SERVER_ERROR and the connection stays open :: {"type":"error","code":"SERVER_ERROR","open":true,"instance":"43c02204e1f8"}
+PASS after Redis is back the same login works again on every instance (session kept by Redis AOF) :: statuses=200,200,200,200,200,200 instances=2
+PASS after Redis is back, signaling is relayed between instances again (pub/sub re-subscribed) :: publisher@002f100e011b viewers=43c02204e1f8
+Gradle test: Redis 지정 46개 클래스 276개 모두 통과 / Redis 없이 260개 통과·16개 건너뜀·실패 0
+다른 Docker 프로젝트 자원: 검증 전후 목록 동일(38줄, 차이 없음)
