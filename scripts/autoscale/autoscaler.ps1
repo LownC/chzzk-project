@@ -8,7 +8,11 @@
       - ScaleOutPercent 이상이 ScaleOutAfter번 연속이면 1개 늘리고(최대 Max),
       - ScaleInPercent 미만이 ScaleInAfter번 연속이면 1개 줄인다(최소 Min).
     바꾼 뒤 CooldownSeconds 동안은 다시 바꾸지 않는다. 판단 근거와 인스턴스 수를 LogFile에 한 줄씩 남긴다.
-    스케일 인은 docker compose가 SIGTERM을 보내고, 앱은 처리 중인 요청을 마친 뒤 내려간다(server.shutdown=graceful).
+    부하 분산기(nginx)의 분산 대상도 함께 관리한다(lb-upstream.ps1).
+      - 매 회차: 요청에 답하는 새 인스턴스는 대상에 넣고, 없어진 인스턴스는 뺀다.
+      - 스케일 인: 내릴 인스턴스(가장 나중에 만든 것)를 먼저 대상에서 빼고 nginx를 다시 읽게 한 뒤 DrainSeconds 기다렸다가
+        docker stop으로 SIGTERM을 보낸다. 앱은 처리 중인 요청을 마친 뒤 내려간다(server.shutdown=graceful).
+        그래서 내려가는 인스턴스로는 새 요청이 가지 않는다.
 
 .EXAMPLE
     .\scripts\autoscale\autoscaler.ps1
@@ -28,10 +32,14 @@ param(
     [string]$ComposeFile = (Join-Path $PSScriptRoot '..\..\deploy\compose.yaml'),
     [string]$EnvFile = (Join-Path $PSScriptRoot '..\..\deploy\.env'),
     [string]$LogFile = (Join-Path $PSScriptRoot 'autoscaler.log'),
+    [string]$UpstreamFile = (Join-Path $PSScriptRoot '..\..\deploy\nginx\upstream.d\app-servers.conf'),
+    # 대상에서 뺀 뒤 인스턴스를 내리기까지 기다리는 시간. nginx가 새 설정으로 바뀌고 이미 보낸 요청이 끝날 여유를 둔다.
+    [int]$DrainSeconds = 5,
     # 0이면 멈출 때(Ctrl+C)까지 계속 돈다.
     [int]$MaxIterations = 0
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lb-upstream.ps1')
 
 # docker는 진행 상황을 stderr로 쓴다. Windows PowerShell 5.1에서 이를 오류로 보지 않도록 종료 코드로만 판단하고,
 # 표준 출력(컨테이너 ID, CPU %)만 돌려준다.
@@ -48,10 +56,11 @@ function Invoke-Docker([string[]]$arguments) {
     return $output
 }
 
+$composeBase = @('compose', '-f', $ComposeFile)
+if (Test-Path $EnvFile) { $composeBase += @('--env-file', $EnvFile) }
+
 function Invoke-Compose([string[]]$arguments) {
-    $base = @('compose', '-f', $ComposeFile)
-    if (Test-Path $EnvFile) { $base += @('--env-file', $EnvFile) }
-    Invoke-Docker ($base + $arguments)
+    Invoke-Docker ($composeBase + $arguments)
 }
 
 function Get-AppContainerIds {
@@ -82,6 +91,49 @@ function Set-AppReplicas([int]$count) {
     Invoke-Compose @('up', '-d', '--no-build', '--no-recreate', '--scale', "app=$count", 'app') | Out-Null
 }
 
+# 부하 분산기 대상에 들어 있는(새 요청을 받는) 인스턴스. 컨테이너 ID와 주소가 모두 같아야 같은 인스턴스로 본다.
+$inService = @()
+$upstreamWritten = $false
+
+function Get-InstanceKey($instance) { "$($instance.Id)|$($instance.Ip)" }
+
+# 실행 중인 인스턴스와 대상 목록을 맞춘다. 없어진 것은 빼고, 요청에 답하는 새 인스턴스는 넣는다.
+function Sync-LbTargets {
+    $running = @(Get-AppInstances $composeBase)
+    $runningKeys = @($running | ForEach-Object { Get-InstanceKey $_ })
+    $kept = @($script:inService | Where-Object { $runningKeys -contains (Get-InstanceKey $_) })
+    $keptKeys = @($kept | ForEach-Object { Get-InstanceKey $_ })
+    $joined = @($running | Where-Object { $keptKeys -notcontains (Get-InstanceKey $_) -and (Test-AppReady $composeBase $_.Ip) })
+    if ($joined.Count -eq 0 -and $kept.Count -eq @($script:inService).Count -and $script:upstreamWritten) { return }
+    $script:inService = @($kept + $joined)
+    Set-LbUpstream $composeBase $UpstreamFile $script:inService
+    $script:upstreamWritten = $true
+    Write-ScalerLog ("lb targets={0} [{1}]" -f $script:inService.Count, (($script:inService | Sort-Object Name | ForEach-Object { $_.Name }) -join ' '))
+}
+
+# 스케일 인: 대상에서 먼저 빼고(드레이닝) 기다린 뒤 내린다. 아직 대상에 들지 못한 인스턴스가 있으면 그것부터 내린다.
+function Remove-AppInstance {
+    $running = @(Get-AppInstances $composeBase)
+    $serviceKeys = @($script:inService | ForEach-Object { Get-InstanceKey $_ })
+    $victim = $running |
+        Sort-Object @{ Expression = { $serviceKeys -contains (Get-InstanceKey $_) } }, @{ Expression = 'Created'; Descending = $true } |
+        Select-Object -First 1
+    $remaining = @($script:inService | Where-Object { (Get-InstanceKey $_) -ne (Get-InstanceKey $victim) })
+    if ($remaining.Count -eq 0) {
+        Write-ScalerLog "scale-in skipped: $($victim.Name)을 빼면 요청을 받을 인스턴스가 없다"
+        return $null
+    }
+    if ($remaining.Count -ne @($script:inService).Count) {
+        $script:inService = $remaining
+        Set-LbUpstream $composeBase $UpstreamFile $script:inService
+        Write-ScalerLog "lb drain $($victim.Name) ($($victim.Ip)), stop after ${DrainSeconds}s"
+        Start-Sleep -Seconds $DrainSeconds
+    }
+    Invoke-Docker @('stop', '-t', '30', $victim.Id) | Out-Null
+    Invoke-Docker @('rm', $victim.Id) | Out-Null
+    return $victim.Name
+}
+
 $high = 0
 $low = 0
 $lastChange = [datetime]::MinValue
@@ -90,6 +142,7 @@ Write-ScalerLog "start min=$Min max=$Max out>=$ScaleOutPercent% x$ScaleOutAfter 
 
 while ($MaxIterations -eq 0 -or $iteration -lt $MaxIterations) {
     $iteration++
+    Sync-LbTargets
     $ids = Get-AppContainerIds
     $current = $ids.Count
     if ($current -lt $Min) {
@@ -107,10 +160,16 @@ while ($MaxIterations -eq 0 -or $iteration -lt $MaxIterations) {
     if (-not $coolingDown -and $high -ge $ScaleOutAfter -and $current -lt $Max) { $target = $current + 1 }
     elseif (-not $coolingDown -and $low -ge $ScaleInAfter -and $current -gt $Min) { $target = $current - 1 }
 
-    if ($target -ne $current) {
+    if ($target -gt $current) {
+        # 새 인스턴스는 요청에 답하게 된 뒤 다음 회차의 Sync-LbTargets가 대상에 넣는다.
         Set-AppReplicas $target
-        $direction = if ($target -gt $current) { 'scale-out' } else { 'scale-in' }
-        Write-ScalerLog "instances=$current cpu=$cpu% -> $direction to $target"
+        Write-ScalerLog "instances=$current cpu=$cpu% -> scale-out to $target"
+    } elseif ($target -lt $current) {
+        $removed = Remove-AppInstance
+        if ($removed) { Write-ScalerLog "instances=$current cpu=$cpu% -> scale-in to $target (removed $removed)" }
+        else { $target = $current }
+    }
+    if ($target -ne $current) {
         $high = 0
         $low = 0
         $lastChange = Get-Date
