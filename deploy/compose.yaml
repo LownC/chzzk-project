@@ -65,6 +65,8 @@ services:
     image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # 분산 대상 목록(생성 파일). cluster-up.ps1과 autoscaler.ps1이 쓴다(scripts/autoscale/lb-upstream.ps1).
+      - ./nginx/upstream.d:/etc/nginx/upstream.d:ro
     ports:
       - "127.0.0.1:${CHZZK_HTTP_PORT:-18090}:80"
     depends_on:
