@@ -539,6 +539,30 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 
 > **현재 상태(2026-11-22):** 소스·배포 설정·클라이언트와 로컬 확인이 끝났고, 데스크톱 패키지는 [GitHub Release `client-v1.0.0`](https://github.com/LownC/chzzk-project/releases/tag/client-v1.0.0)(사전 릴리스)으로 게시했습니다. OCI VM은 A1 재고 부족으로 아직 만들지 못해(아래 "생성 시도 기록") DNS 연결·공개 배포를 하지 못했습니다. 그래서 공개 주소는 아직 열리지 않으며, 외부 네트워크 확인과 macOS 실기기 확인은 `NOT_TESTED`입니다.
 
+### 제출 현황 (2026-11-22)
+
+**필수 체크리스트 7개**
+
+| # | 항목 | 상태 | 근거 |
+| --- | --- | --- | --- |
+| 1 | 소스에 문법 오류가 없다 | 충족 | 백엔드 테스트 292개(276개 통과, Redis 구현 16개 건너뜀, 실패 0), 클라이언트 단위 테스트 4개, Windows·macOS CI 빌드 성공 |
+| 2 | 기존 방송·계정·댓글·후원 백엔드 기능과 상태 확인 경로 | 충족 | `GET /health`(200 UP / 503 DOWN), `HealthCheckTests`, Stage 1~5 테스트 유지 |
+| 3 | README에 도메인, 최초 등록·갱신 비용, DNS·HTTPS 구성 | 충족 | 아래 "도메인과 비용"(최초 $11.17, 갱신 연 $11.17), "DNS와 HTTPS 구성" |
+| 4 | OCI 배포 설정·재현 절차, VM 리전·shape·OCPU·메모리, Always Free 근거 | 설정·절차 작성 완료, **VM은 미생성** | `deploy/oci/`, 아래 "서버 설치와 배포", "OCI VM 선택 근거"와 [생성 시도 기록](docs/stage6-oci-attempts.md) |
+| 5 | 배포 백엔드의 목록·재생을 쓰는 데스크톱 클라이언트 소스 | 충족 | `client/`(목록 `GET /api/broadcasts`, MP4 재생·탐색) |
+| 6 | Windows·macOS 패키지 빌드 설정·스크립트 | 충족 | `client/build.gradle.kts`(jpackage), `.github/workflows/client-build.yml` |
+| 7 | 다운로드 페이지 OS별 링크, README 공개 주소·OS별 설치·실행 확인 절차 | 충족(소스·설정 기준) | `/download`가 Release 파일에 연결, 아래 "OS별 설치·실행 확인 절차" |
+
+**공개 서비스·다운로드 현황**
+
+| 항목 | 상태 |
+| --- | --- |
+| 공개 주소 `https://chzzk.lowndev.com` | 열리지 않음: OCI A1 재고 부족으로 VM을 만들지 못함(2 OCPU·12 GB, 1 OCPU·6 GB 두 번 모두 `Out of capacity for shape VM.Standard.A1.Flex in availability domain AD-1`, 남은 리소스 없음, 유료 전환·재시도 안 함) |
+| GitHub Release | [`client-v1.0.0`](https://github.com/LownC/chzzk-project/releases/tag/client-v1.0.0) 사전 릴리스, Windows x64 ZIP·macOS arm64 DMG·`SHA256SUMS.txt` |
+| 공개 다운로드 링크 | Release 파일 주소 3개 모두 로그인 없이 HTTP 200, 받은 파일의 SHA-256이 게시 값과 일치 |
+| 패키지 재생 확인 | GitHub Actions 러너에서 게시 파일 그대로 확인 통과(Windows 11 러너·macOS arm64 러너, 로컬 확인 서버와 실제 H.264/AAC MP4) |
+| 확인하지 못한 것 | 공개 백엔드 연동, 외부 네트워크 HTTPS, macOS 실기기, 게시 파일의 실제 사용자 PC 확인 |
+
 ### 구현 범위와 파일
 
 | 과제 요구 | 파일 |
@@ -558,8 +582,8 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 | --- | --- |
 | 도메인 | `lowndev.com` (등록: 2026-11-22, 만료: 2027-11-22, 등록기관 Cloudflare Registrar) |
 | 서비스 주소 | `https://chzzk.lowndev.com` (다운로드 페이지 `https://chzzk.lowndev.com/download`) |
-| 최초 등록 비용 | 미기재 — Cloudflare 결제 내역 확인 후 기재 예정 |
-| 갱신 비용 | 연 $11.17 (Cloudflare 대시보드 표시 가격, 자동 갱신 꺼짐) |
+| 최초 등록 비용 | $11.17 USD (1년, 결제일 2026-11-22, 판매자 Cloudflare Inc. PayPal 결제 영수증과 Cloudflare 청구서로 교차 확인) |
+| 갱신 비용 | 연 $11.17 USD 예상 (Cloudflare 대시보드 표시 가격, 자동 갱신 꺼짐, 만료 예정일 2027-11-22) |
 | 보호 | 이전 잠금(`clientTransferProhibited`), WHOIS 등록자 정보 비공개(RDAP `DATA REDACTED`) |
 | VM·인증서 비용 | 0원 (OCI Always Free 범위, Let's Encrypt 무료 인증서, Cloudflare Free 플랜) |
 
