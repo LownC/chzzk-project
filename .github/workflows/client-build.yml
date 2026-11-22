@@ -52,7 +52,10 @@ jobs:
           ./gradlew -p client --no-daemon ${{ matrix.task }}
           ls -l client/build/dist
 
+      # Windows Server 러너에는 AAC 디코더(Media Foundation)가 없어 재생 확인이 OS 때문에 실패한다(1차 확인에서 ERROR_MEDIA_AAC_FORMAT_UNSUPPORTED).
+      # 그래서 Windows 패키지의 재생 확인은 데스크톱 Windows 11 러너(아래 windows-playback 작업)에서 한다.
       - name: Start local smoke server
+        if: runner.os != 'Windows'
         run: |
           java client/smoke/SmokeServer.java 18080 client/smoke/sample-h264-aac.mp4 > smoke-server.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:18080/api/broadcasts > /dev/null && break; sleep 1; done
@@ -62,6 +65,7 @@ jobs:
 
       - name: Playback smoke test (packaged artifact, no system Java)
         id: smoke
+        if: runner.os != 'Windows'
         run: |
           set +e
           if [ "$RUNNER_OS" = "Windows" ]; then
@@ -88,7 +92,7 @@ jobs:
             echo "| 항목 | 결과 |"
             echo "| --- | --- |"
             echo "| 패키지 빌드 | ${{ steps.package.outcome }} |"
-            echo "| 재생 확인(러너, 로컬 서버, 목록·재생·탐색) | ${{ steps.smoke.outcome }} |"
+            echo "| 재생 확인(러너, 로컬 서버, 목록·재생·탐색) | ${{ runner.os == 'Windows' && 'windows-playback 작업(Windows 11)에서 확인' || steps.smoke.outcome }} |"
             echo "| 실제 사용자 PC/Mac 실기기 확인 | 이 워크플로에서는 하지 않음(NOT_TESTED) |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -102,6 +106,68 @@ jobs:
         if: always()
         with:
           name: ${{ matrix.os }}-smoke-log
+          path: |
+            smoke.log
+            smoke-server.log
+          if-no-files-found: ignore
+
+  # Windows x64 패키지(ZIP)의 재생 확인. 데스크톱 Windows 11 러너(Arm64)에서 위에서 만든 x64 ZIP을 받아
+  # Windows의 x64 에뮬레이션으로, 시스템 Java 없이 실행한다(Windows Server 러너에는 AAC 디코더가 없음).
+  windows-playback:
+    needs: package
+    runs-on: windows-11-arm
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-latest-package
+          path: dist
+
+      - name: Start local smoke server
+        run: |
+          java client/smoke/SmokeServer.java 18080 client/smoke/sample-h264-aac.mp4 > smoke-server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:18080/api/broadcasts > /dev/null && break; sleep 1; done
+          cat smoke-server.log
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=0-99' http://127.0.0.1:18080/videos/sample.mp4)
+          echo "range request -> $code"; test "$code" = "206"
+
+      - name: Playback smoke test (x64 ZIP on Windows 11, no system Java)
+        id: smoke
+        run: |
+          set +e
+          mkdir artifact-test
+          unzip -q dist/chzzk-client-windows-x64.zip -d artifact-test
+          env -u JAVA_HOME PATH="/usr/bin:/bin:/c/Windows/System32:/c/Windows" \
+            artifact-test/chzzk-client/chzzk-client.exe --smoke-test --server=http://127.0.0.1:18080 --smoke-log=smoke.log
+          status=$?
+          cat smoke.log
+          grep -q "SMOKE PASS playback" smoke.log || status=1
+          exit $status
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Windows x64 패키지 재생 확인 (windows-11-arm 러너, x64 에뮬레이션)"
+            echo "| 항목 | 결과 |"
+            echo "| --- | --- |"
+            echo "| 재생 확인(러너, 로컬 서버, 목록·재생·탐색) | ${{ steps.smoke.outcome }} |"
+            echo "| 실제 사용자 PC 확인 | 이 워크플로에서는 하지 않음(NOT_TESTED) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-11-smoke-log
           path: |
             smoke.log
             smoke-server.log
