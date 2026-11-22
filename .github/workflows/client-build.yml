@@ -1,0 +1,70 @@
+# ⑥ 데스크톱 클라이언트 OS별 패키지 빌드. jpackage는 실행하는 OS용 패키지만 만들므로 OS별 러너에서 각각 만든다.
+#   - Windows x64: app-image ZIP (chzzk-client-windows-x64.zip)
+#   - macOS arm64(Apple Silicon): DMG (chzzk-client-macos-arm64.dmg)
+# 결과는 워크플로 실행의 Artifacts로만 올린다. GitHub Releases 게시는 하지 않는다(게시는 사람이 확인한 뒤 따로).
+# 빌드 성공은 패키지가 만들어졌다는 뜻일 뿐, 실제 사용자 PC에서 설치·실행·재생이 확인됐다는 뜻은 아니다(README "확인 기록").
+name: client-build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "client/**"
+      - ".github/workflows/client-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            task: packageWindowsZip
+            artifact: client/build/dist/chzzk-client-windows-x64.zip
+          - os: macos-latest
+            task: packageMacDmg
+            artifact: client/build/dist/chzzk-client-macos-arm64.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Unit tests
+        run: ./gradlew -p client --no-daemon test
+        shell: bash
+
+      - name: Package
+        run: ./gradlew -p client --no-daemon ${{ matrix.task }}
+        shell: bash
+
+      # 배포 서버(https://chzzk.lowndev.com)가 열려 있을 때만 의미가 있다. 서버가 없으면 실패해도 빌드는 계속한다.
+      - name: Smoke test (Windows app-image)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: bash
+        run: |
+          ./gradlew -p client --no-daemon packageAppImage
+          client/build/jpackage/chzzk-client/chzzk-client.exe --smoke-test --smoke-log=smoke.log; status=$?
+          cat smoke.log; exit $status
+
+      - name: Smoke test (macOS app)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        shell: bash
+        run: |
+          ./gradlew -p client --no-daemon packageAppImage
+          client/build/jpackage/chzzk-client.app/Contents/MacOS/chzzk-client --smoke-test --smoke-log=smoke.log; status=$?
+          cat smoke.log; exit $status
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-package
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error

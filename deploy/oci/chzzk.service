@@ -1,0 +1,29 @@
+# ⑥ OCI VM의 systemd 서비스. /etc/systemd/system/chzzk.service 로 복사한다(README "OCI 배포").
+# 비밀 값과 경로는 /etc/chzzk/chzzk.env(권한 600, Git에 넣지 않음)에서만 읽는다. 예시는 deploy/oci/chzzk.env.example.
+[Unit]
+Description=chzzk (Spring Boot, deploy profile)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chzzk
+Group=chzzk
+WorkingDirectory=/opt/chzzk
+EnvironmentFile=/etc/chzzk/chzzk.env
+Environment=SPRING_PROFILES_ACTIVE=deploy
+ExecStart=/usr/bin/java -XX:MaxRAMPercentage=50 -jar /opt/chzzk/chzzk.jar
+# SIGTERM으로 끝나면(종료 코드 143) 정상 종료로 본다. 앱은 graceful shutdown으로 처리 중인 요청을 마친다(최대 20초).
+SuccessExitStatus=143
+TimeoutStopSec=40
+Restart=on-failure
+RestartSec=5
+# 앱이 쓸 수 있는 곳은 데이터 볼륨뿐이다.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/data/chzzk
+
+[Install]
+WantedBy=multi-user.target
