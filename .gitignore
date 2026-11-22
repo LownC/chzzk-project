@@ -42,6 +42,8 @@ out/
 
 ### Uploaded videos ###
 *.mp4
+# ⑥ 클라이언트 확인용 합성 샘플(ffmpeg 테스트 패턴, 10초, 278KB)만 예외로 저장소에 둔다.
+!client/smoke/sample-h264-aac.mp4
 
 ### Secrets / env ###
 .env

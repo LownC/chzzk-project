@@ -52,3 +52,10 @@ app:
       client-key: ${TOSS_CLIENT_KEY:}
       secret-key: ${TOSS_SECRET_KEY:}
       api-base-url: https://api.tosspayments.com
+  # ⑥ 다운로드 페이지(/download)의 OS별 데스크톱 클라이언트 패키지 주소. 기본값은 실제로 게시한 GitHub Release
+  # client-v1.0.0의 파일이다(2026-11-22 게시, SHA-256은 SHA256SUMS.txt). 환경변수로 바꿀 수 있고,
+  # 빈 값으로 지정하면 페이지에 "아직 게시되지 않음"으로 보이고 링크를 만들지 않는다.
+  download:
+    windows-x64-url: ${APP_DOWNLOAD_WINDOWS_X64_URL:https://github.com/LownC/chzzk-project/releases/download/client-v1.0.0/chzzk-client-windows-x64.zip}
+    macos-arm64-url: ${APP_DOWNLOAD_MACOS_ARM64_URL:https://github.com/LownC/chzzk-project/releases/download/client-v1.0.0/chzzk-client-macos-arm64.dmg}
+    checksums-url: ${APP_DOWNLOAD_CHECKSUMS_URL:https://github.com/LownC/chzzk-project/releases/download/client-v1.0.0/SHA256SUMS.txt}

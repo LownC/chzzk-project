@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>데스크톱 클라이언트 다운로드 - 치지직</title>
+	<style>
+		table { border-collapse: collapse; }
+		th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }
+		.unpublished { color: #777; }
+	</style>
+</head>
+<body>
+<header th:replace="~{fragments/header :: header}"></header>
+<main>
+	<h1>데스크톱 클라이언트 다운로드</h1>
+	<p>치지직 방송 목록을 보고 녹화 방송을 재생하는 Windows·macOS 앱입니다. 라이브 방송 시청은 웹 화면에서 합니다.
+		앱에 Java 실행 환경이 들어 있어 Java를 따로 설치하지 않아도 됩니다.</p>
+
+	<table>
+		<thead>
+		<tr>
+			<th>운영체제</th>
+			<th>지원 아키텍처</th>
+			<th>파일</th>
+			<th>설치·실행 방법</th>
+		</tr>
+		</thead>
+		<tbody>
+		<tr id="windows">
+			<td>Windows 10·11</td>
+			<td>x64</td>
+			<td>
+				<a th:if="${windowsX64Url}" th:href="${windowsX64Url}">chzzk-client-windows-x64.zip</a>
+				<span th:unless="${windowsX64Url}" class="unpublished">아직 게시되지 않음</span>
+			</td>
+			<td>
+				<ol>
+					<li>ZIP 파일을 내려받아 원하는 폴더에 압축을 풉니다(설치 과정 없음).</li>
+					<li><code>chzzk-client\chzzk-client.exe</code>를 실행합니다.</li>
+					<li>서명하지 않은 앱이라 "Windows의 PC 보호" 창이 뜨면 <b>추가 정보 → 실행</b>을 누릅니다.</li>
+				</ol>
+			</td>
+		</tr>
+		<tr id="macos">
+			<td>macOS 13 이상</td>
+			<td>Apple Silicon(arm64)</td>
+			<td>
+				<a th:if="${macosArm64Url}" th:href="${macosArm64Url}">chzzk-client-macos-arm64.dmg</a>
+				<span th:unless="${macosArm64Url}" class="unpublished">아직 게시되지 않음</span>
+			</td>
+			<td>
+				<ol>
+					<li>DMG 파일을 열고 <code>chzzk-client</code>를 응용 프로그램 폴더로 끌어 놓습니다.</li>
+					<li>서명·공증하지 않은 앱이라 처음 실행할 때 차단됩니다. Finder에서 앱을 <b>Control-클릭 → 열기</b>를 누르거나,
+						<b>시스템 설정 → 개인정보 보호 및 보안</b>에서 <b>그래도 열기</b>를 누릅니다.</li>
+				</ol>
+			</td>
+		</tr>
+		</tbody>
+	</table>
+
+	<p th:if="${checksumsUrl}">파일이 올바른지 확인하려면 SHA-256 체크섬(<a th:href="${checksumsUrl}">SHA256SUMS.txt</a>)과 비교하세요.</p>
+
+	<h2>참고</h2>
+	<ul>
+		<li>Intel Mac(x64)과 Windows on ARM용 패키지는 제공하지 않습니다.</li>
+		<li>앱은 기본으로 이 서비스(<code>https://chzzk.lowndev.com</code>)에 접속합니다. 다른 서버를 쓰려면
+			<code>--server=주소</code> 인자나 <code>CHZZK_SERVER_URL</code> 환경변수로 지정합니다.</li>
+		<li>앱은 코드 서명을 하지 않았습니다. 위 경고는 서명되지 않은 앱에 운영체제가 보이는 안내입니다.</li>
+	</ul>
+</main>
+</body>
+</html>

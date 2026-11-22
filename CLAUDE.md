@@ -5,7 +5,7 @@
 ## 프로젝트 개요
 
 - **목적**: Spring Boot 기반 녹화 방송 등록·시청, 휴대폰 라이브 송출·시청, 회원 인증·인가와 댓글, 도네이션 서비스
-- **현재 구현 단계**: 5단계 — 로컬 오토스케일(1~4단계 위에 추가). 설계는 `docs/autoscale.md`, 실행·확인 절차와 관찰 결과는 README "로컬 오토스케일 (Stage 5)"를 본다. 4단계는 `docs/donation.md`, 3단계 정책은 README "인증·인가 정책", 라이브 변경은 `docs/live-streaming.md` 9절.
+- **현재 구현 단계**: 6단계 — 도메인·OCI 배포와 Windows/macOS 클라이언트(1~5단계 위에 추가). 범위·절차·확인 기록은 README "도메인·OCI 배포와 데스크톱 클라이언트 (Stage 6)". 5단계 설계는 `docs/autoscale.md`, 실행·확인 절차와 관찰 결과는 README "로컬 오토스케일 (Stage 5)"를 본다. 4단계는 `docs/donation.md`, 3단계 정책은 README "인증·인가 정책", 라이브 변경은 `docs/live-streaming.md` 9절.
 - **기술 스택**: Java 25, Spring Boot 4.1.2, Gradle Kotlin DSL, Spring MVC, Spring WebSocket, Spring Security(세션 폼 로그인·BCrypt·CSRF), Thymeleaf, 브라우저 WebRTC API, Spring Data JPA, H2(2.5.252 고정, README "H2 버전 고정"), 5단계 cluster 프로파일의 Spring Data Redis·Spring Session Data Redis, Docker Compose·nginx·k6
 - **기본 패키지**: `com.programmers.chzzk`
 - **빌드/테스트**: `./gradlew build`, `./gradlew test` (Windows: `gradlew.bat`)
@@ -79,6 +79,13 @@ Spring Boot 4.x는 3.x와 starter 이름과 테스트 모듈 구성이 다르다
 - k6 부하 스크립트(`deploy/load/k6-load.js`), README에 관찰한 인스턴스 수 변화 기록
 - 클라우드 배포는 하지 않는다. 결제는 계속 가짜 게이트웨이만 쓴다
 
+### 6단계 — 도메인·OCI 배포와 Windows/macOS 클라이언트
+
+- 백엔드: `GET /health`(DB 확인, 200/503), `GET /api/broadcasts`(데스크톱용 읽기 전용 목록), `application-deploy.yaml`(127.0.0.1 수신, 로컬 nginx만 신뢰하는 전달 헤더, Secure 쿠키, H2 콘솔 끔, 가짜 결제 고정, 500MB 업로드 유지), `/download` 페이지
+- 배포 설정 `deploy/oci/`(nginx + Let's Encrypt, systemd, 환경 파일 예시, 백업). Cloudflare DNS는 DNS only(프록시 100MB 제한 때문에, 사용자 결정)
+- 데스크톱 클라이언트 `client/`(JavaFX + jpackage, 독립 Gradle 빌드). Windows x64 ZIP, macOS arm64 DMG
+- 사용자 결정: OCI VM 생성, Cloudflare DNS 변경, push, GitHub Releases 게시, 외부 배포는 별도 승인 후에만 한다. macOS 실행은 실제 Mac에서 확인하기 전까지 성공으로 기록하지 않는다
+
 썸네일, 라이브 녹화 저장, 결제 취소·환불·정산, 실시간 후원 알림, 회원정보 수정·탈퇴, 비밀번호 찾기, 관리자 권한, 실시간 댓글 기능은 구현하지 않는다.
 
 ## 작업 규칙
@@ -88,7 +95,7 @@ Spring Boot 4.x는 3.x와 starter 이름과 테스트 모듈 구성이 다르다
 - 한 번에 지나치게 많은 파일을 수정하지 않는다.
 - 기능 구현 후 관련 테스트를 실행한다.
 - 테스트 실패 시 원인을 분석하고 수정한다.
-- 사용자가 요청하지 않은 의존성을 추가하지 않는다. (3단계에서 Spring Security와 그 테스트 의존성, 5단계에서 `spring-boot-starter-data-redis`·`spring-session-data-redis`만 사용자 승인을 받아 추가했다. 5단계 컨테이너 이미지 eclipse-temurin·nginx·redis·grafana/k6 사용도 승인받았다.)
+- 사용자가 요청하지 않은 의존성을 추가하지 않는다. (3단계에서 Spring Security와 그 테스트 의존성, 5단계에서 `spring-boot-starter-data-redis`·`spring-session-data-redis`만 사용자 승인을 받아 추가했다. 5단계 컨테이너 이미지 eclipse-temurin·nginx·redis·grafana/k6 사용도 승인받았다. 6단계에서 클라이언트(`client/`)의 OpenJFX와 jackson-jr, JUnit만 승인받아 추가했다.)
 - 환경 변수와 파일 경로를 임의로 변경하지 않는다.
 - 실제 영상 파일, H2 데이터베이스, 그 백업을 삭제하지 않는다.
 
