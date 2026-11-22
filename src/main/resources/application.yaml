@@ -52,3 +52,8 @@ app:
       client-key: ${TOSS_CLIENT_KEY:}
       secret-key: ${TOSS_SECRET_KEY:}
       api-base-url: https://api.tosspayments.com
+  # ⑥ 다운로드 페이지(/download)의 OS별 데스크톱 클라이언트 패키지 주소. 실제로 게시한 뒤에만 지정한다.
+  # 비어 있으면 페이지에 "아직 게시되지 않음"으로 보이고 링크를 만들지 않는다.
+  download:
+    windows-x64-url: ${APP_DOWNLOAD_WINDOWS_X64_URL:}
+    macos-arm64-url: ${APP_DOWNLOAD_MACOS_ARM64_URL:}

@@ -1,0 +1,44 @@
+# ⑥ OCI VM 한 대에 배포할 때의 설정. deploy/oci/chzzk.service가 SPRING_PROFILES_ACTIVE=deploy로 켠다.
+# 앱은 같은 VM의 nginx(TLS 종료) 뒤에서 127.0.0.1로만 듣는다. 경로·비밀 값은 VM의 환경 파일(/etc/chzzk/chzzk.env)로만 받는다.
+# 개발(dev)·테스트(test)·클러스터(cluster) 프로파일과 기존 기능(500MB 업로드 포함, application.yaml)은 그대로다.
+spring:
+  datasource:
+    # 데이터 볼륨의 새 H2 파일 DB. 경로·비밀번호는 기본값 없이 환경변수로만 받는다(없으면 시작하지 않음).
+    url: jdbc:h2:file:${APP_DATA_DIR}/chzzk_db;MODE=MySQL
+    username: sa
+    password: ${CHZZK_DB_PASSWORD}
+    driver-class-name: org.h2.Driver
+  h2:
+    console:
+      enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: update
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  # 외부에서 앱으로 바로 들어오지 못하게 루프백에서만 듣는다. 외부 요청은 nginx(443)만 받는다.
+  address: 127.0.0.1
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  # nginx가 넘긴 X-Forwarded-For·X-Forwarded-Proto를 Tomcat이 반영해 https 주소·로그인 이동·WebSocket 같은 출처 검사가 맞게 된다.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      # 같은 VM의 nginx(루프백)에서 온 전달 헤더만 믿는다. 다른 주소에서 온 X-Forwarded-*는 무시된다.
+      internal-proxies: 127\.0\.0\.1|0:0:0:0:0:0:0:1
+  servlet:
+    session:
+      cookie:
+        # 서비스는 https로만 제공하므로 세션 쿠키를 https에서만 보낸다.
+        secure: true
+
+app:
+  cluster:
+    enabled: false
+  file:
+    upload-dir: ${APP_UPLOAD_DIR}
+  payment:
+    # 배포 서버도 외부 결제 서비스를 호출하지 않는 가짜 결제만 쓴다(④ 결정). 환경변수로 바꿀 수 없게 고정한다.
+    gateway: fake
