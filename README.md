@@ -557,7 +557,7 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 
 | 항목 | 상태 |
 | --- | --- |
-| 공개 주소 `https://chzzk.lowndev.com` | 열리지 않음: OCI A1 재고 부족으로 VM을 만들지 못함(2 OCPU·12 GB, 1 OCPU·6 GB 두 번 모두 `Out of capacity for shape VM.Standard.A1.Flex in availability domain AD-1`, 남은 리소스 없음, 유료 전환·재시도 안 함) |
+| 공개 주소 `https://chzzk.lowndev.com` | 열리지 않음: OCI A1 재고 부족으로 VM을 만들지 못함(2 OCPU·12 GB, 1 OCPU·6 GB 두 번 모두 `Out of capacity for shape VM.Standard.A1.Flex in availability domain AD-1`), 무료 대안 E2.1.Micro는 홈 리전(Batam)에서 제공되지 않음. 남은 리소스 없음, 유료 전환·재시도 안 함 |
 | GitHub Release | [`client-v1.0.0`](https://github.com/LownC/chzzk-project/releases/tag/client-v1.0.0) 사전 릴리스, Windows x64 ZIP·macOS arm64 DMG·`SHA256SUMS.txt` |
 | 공개 다운로드 링크 | Release 파일 주소 3개 모두 로그인 없이 HTTP 200, 받은 파일의 SHA-256이 게시 값과 일치 |
 | 패키지 재생 확인 | GitHub Actions 러너에서 게시 파일 그대로 확인 통과(Windows 11 러너·macOS arm64 러너, 로컬 확인 서버와 실제 H.264/AAC MP4) |
@@ -652,6 +652,7 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 | 1차 시도 | A1 2 OCPU / 12 GB, 부트 50 GB → `Out of capacity for shape VM.Standard.A1.Flex in availability domain AD-1.` |
 | 2차 시도 | A1 1 OCPU / 6 GB(무료 대안, 한 번만) → 같은 오류 |
 | 시도 뒤 상태 | 인스턴스·VCN·부트 볼륨 모두 0(남은 리소스 없음). 재시도·다른 shape·유료 전환은 하지 않음 |
+| E2.1.Micro 대안 | 생성 화면에서 확인: Batam에서는 `VM.Standard.E2.1.Micro`를 고를 수 없음(이전 세대 shape 목록 비어 있음, x86 이미지의 호환 shape는 유료 `E5.Flex`·`Standard3.Flex`·`BM.Standard.E5.192`뿐). Create를 누르지 않음 |
 
 홈 리전(Batam)은 가용성 도메인이 하나라 다른 곳에서 만들 수 없습니다. A1 재고가 생기면 위 구성(2 OCPU·12 GB 우선, 안 되면 1 OCPU·6 GB)으로 다시 만들고 이 표에 결과를 더합니다. 그 전까지 공개 서버(`chzzk.lowndev.com`)는 열리지 않습니다. 시도별 화면 값과 오류 원문은 [docs/stage6-oci-attempts.md](docs/stage6-oci-attempts.md)에 있습니다.
 

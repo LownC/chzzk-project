@@ -36,7 +36,19 @@
 - 시도 직후 확인: 인스턴스 0, VCN 0, 부트 볼륨 0(남은 리소스 없음). 생성 마법사의 새 VCN도 만들어지지 않았다.
 - 홈 리전의 가용성 도메인이 하나뿐이라 다른 가용성 도메인으로 옮길 수 없다.
 
-## 4. 이후 선택지 (사용자 결정 대기)
+## 4. E2.1.Micro 대안 확인 (사용자가 생성 1회를 조건부 승인, 생성 화면까지 진행)
+
+| 확인 | 결과 |
+| --- | --- |
+| 이미지 | Canonical Ubuntu 24.04 Minimal(x86-64), 빌드 2026.11.05-0, 가격 표시 "Free" |
+| Shape 화면 "Specialty and previous generation"(E2.1.Micro가 있는 분류) | "No items to display"(기다린 뒤 다시 확인해도 같음) |
+| Shape 화면 "AMD" | `VM.Standard.E5.Flex`만 표시(Always Free 표시 없음, 유료) |
+| 이미지의 "호환 shape" 목록 | `BM.Standard.E5.192`, `VM.Standard3.Flex`, `VM.Standard.E5.Flex` 세 가지뿐(모두 유료) |
+| 결론 | 홈 리전(Batam)에서는 `VM.Standard.E2.1.Micro`를 고를 수 없음. 콘솔 한도 표의 E2 Micro 항목 "Deprecated" 표시와도 맞음 |
+| 조치 | Create를 누르지 않음(생성 요청 0회). 이미지를 바꾸자 콘솔이 자동으로 고른 유료 shape(E5.Flex)도 쓰지 않음 |
+| 확인 뒤 상태 | 인스턴스 0, VCN 0, 부트 볼륨 0 |
+
+## 5. 이후 선택지 (사용자 결정 대기)
 
 - A1 재고가 생길 때 다시 시도(2 OCPU·12 GB 우선).
 - 무료 대안 `VM.Standard.E2.1.Micro`(AMD x86-64, 1/8 OCPU 버스트, 메모리 1 GB, 인터넷 대역폭 최대 50 Mbps): 적합성 검토는 README "E2.1.Micro 대안 검토"에 있다. 생성은 아직 승인되지 않았다.
