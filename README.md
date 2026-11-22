@@ -587,6 +587,7 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
    ```
 
 3. **nginx**: `deploy/oci/nginx-chzzk.conf` — 443 TLS(1.2·1.3), 80→443 이동, 업로드 510MB, WebSocket(`/ws/live`) 업그레이드, 영상 Range 요청 전달, `X-Forwarded-Proto`·`Host` 전달.
+   - 공개 서비스 남용 방지(최소 구성): 같은 IP의 회원가입·로그인 POST는 분당 10번, 영상 업로드 POST는 시간당 20번까지(넘으면 429). 파일 하나의 크기 한도 500MB는 그대로이고, 조회(GET)는 제한하지 않습니다. 디스크 사용량은 `df -h /data`로 확인합니다.
 
 ### 배포 프로파일 (`application-deploy.yaml`)
 
