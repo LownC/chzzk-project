@@ -629,7 +629,15 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 | 2차 시도 | A1 1 OCPU / 6 GB(무료 대안, 한 번만) → 같은 오류 |
 | 시도 뒤 상태 | 인스턴스·VCN·부트 볼륨 모두 0(남은 리소스 없음). 재시도·다른 shape·유료 전환은 하지 않음 |
 
-홈 리전(Batam)은 가용성 도메인이 하나라 다른 곳에서 만들 수 없습니다. A1 재고가 생기면 위 구성(2 OCPU·12 GB 우선, 안 되면 1 OCPU·6 GB)으로 다시 만들고 이 표에 결과를 더합니다. 그 전까지 공개 서버(`chzzk.lowndev.com`)는 열리지 않습니다.
+홈 리전(Batam)은 가용성 도메인이 하나라 다른 곳에서 만들 수 없습니다. A1 재고가 생기면 위 구성(2 OCPU·12 GB 우선, 안 되면 1 OCPU·6 GB)으로 다시 만들고 이 표에 결과를 더합니다. 그 전까지 공개 서버(`chzzk.lowndev.com`)는 열리지 않습니다. 시도별 화면 값과 오류 원문은 [docs/stage6-oci-attempts.md](docs/stage6-oci-attempts.md)에 있습니다.
+
+**E2.1.Micro 대안 검토 (생성하지 않음, 사용자 결정 대기)**
+
+- 공식 문서: 모든 테넌시에 `VM.Standard.E2.1.Micro` Always Free 인스턴스 2대. AMD EPYC(x86-64), 1/8 OCPU(여유 CPU 버스트), 메모리 1 GB, 인터넷 대역폭 최대 50 Mbps, 한 가용성 도메인에서만 생성. 메모리가 작아 일부 프로그램이 빠진 이미지가 있음.
+- 콘솔 한도 표의 "Deprecated" 표시: 서비스 한도 문서는 이 shape를 `standard-e2-micro-core-count`(2) 한도로 관리합니다. 예전 개수형 한도 항목에 붙은 표시로 보이며 shape 자체의 폐지 공지는 문서에서 찾지 못했습니다(추정, 생성 화면에서 확인 필요).
+- Java 25: Temurin 25 x86-64를 그대로 씁니다(JAR는 아키텍처와 무관).
+- 로컬 메모리 측정(같은 JAR, `deploy` 프로파일, `-Xmx256m -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=48m -XX:MaxDirectMemorySize=64m -Xss512k -XX:+UseSerialGC`, Tomcat 스레드 20): 시작 7초 뒤 working set 339 MB, 유휴 305 MB, 요청 450번 뒤 334 MB, **152 MB 영상 업로드 중 최대 348 MB**(업로드는 메모리에 쌓지 않고 디스크로 흘려 저장, 파일 크기 일치, Range 206), 업로드 뒤 325 MB, OutOfMemory 없음.
+- 판단: Ubuntu 최소 이미지(약 200~300 MB 추정)와 nginx(수십 MB 추정)를 더하면 약 600~700 MB로 1 GB 안에 들어갈 것으로 보입니다. 다만 여유가 작아 스왑 파일(2 GB)과 위 JVM 제한이 필요합니다. CPU가 1/8 OCPU라 시작·첫 요청이 이 PC보다 훨씬 느릴 것이고(측정하지 않음), 대역폭 50 Mbps라 500 MB 업로드는 1분 30초 이상 걸립니다. OS·nginx 메모리와 CPU 속도는 실제 VM에서만 확인할 수 있습니다.
 - 주의: Always Free 인스턴스는 7일 동안 CPU(95번째 백분위수)·네트워크·메모리(A1)가 모두 20% 미만이면 회수될 수 있습니다(공식 문서). 종량제(Pay As You Go)로 바꾸지 않았고, Always Free 표시가 없는 리소스는 만들지 않습니다.
 
 ### 서버 설치와 배포 (재현 절차)
