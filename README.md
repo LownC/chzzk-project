@@ -537,7 +537,7 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 
 백엔드를 OCI Always Free VM 한 대에 배포해 `https://chzzk.lowndev.com`으로 제공하고, 같은 백엔드의 방송 목록을 보고 녹화 방송을 재생하는 Windows·macOS 앱을 내려받을 수 있게 합니다.
 
-> **현재 상태(2026-11-22):** 소스·배포 설정·클라이언트 빌드 설정과 로컬 확인까지 끝났습니다. OCI VM 생성, DNS 연결, 공개 배포, 패키지 게시는 아직 하지 않았습니다. 그래서 아래 공개 주소는 아직 열리지 않으며, 외부 네트워크·macOS 실행 확인은 `NOT_TESTED`입니다.
+> **현재 상태(2026-11-22):** 소스·배포 설정·클라이언트와 로컬 확인이 끝났고, 데스크톱 패키지는 [GitHub Release `client-v1.0.0`](https://github.com/LownC/chzzk-project/releases/tag/client-v1.0.0)(사전 릴리스)으로 게시했습니다. OCI VM은 A1 재고 부족으로 아직 만들지 못해(아래 "생성 시도 기록") DNS 연결·공개 배포를 하지 못했습니다. 그래서 공개 주소는 아직 열리지 않으며, 외부 네트워크 확인과 macOS 실기기 확인은 `NOT_TESTED`입니다.
 
 ### 구현 범위와 파일
 
@@ -700,6 +700,16 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 - `--smoke-test`(선택 `--smoke-log=파일`): 화면 없이 목록 조회 → 첫 녹화방송 2초 재생 → 중간 탐색을 확인하고 결과를 남깁니다. 로컬 확인과 Actions에서 씁니다. 실제 화면 표시·소리 확인을 대신하지 않습니다.
 - `.github/workflows/client-build.yml`(GitHub 무료 표준 러너 `windows-latest`, `macos-latest`)은 Windows ZIP·macOS DMG를 만든 뒤, **만든 패키지 파일 자체**를 풀거나(ZIP) 마운트해(DMG) 시스템 Java 없이 `--smoke-test`로 실행합니다. 상대 서버는 러너 안의 작은 HTTP 서버(`client/smoke/SmokeServer.java`: 목록 API 모양의 응답, 실제 H.264/AAC MP4 `client/smoke/sample-h264-aac.mp4` 10초, Range 206 지원)입니다. 확인 실패는 작업 실패가 되고, 작업 요약에 "패키지 빌드"와 "재생 확인"을 따로 적습니다. 결과는 실행의 Artifacts에만 올립니다(Releases 게시는 따로).
 - 이 확인은 GitHub 러너(가상 머신)에서의 실행입니다. 실제 사용자 PC·Mac 실기기에서 화면을 보며 확인한 것과는 다르며 별도로 기록합니다.
+- Windows Server 러너(`windows-latest`)에는 AAC 디코더가 없어 재생 확인이 OS 때문에 실패합니다(`ERROR_MEDIA_AAC_FORMAT_UNSUPPORTED`). 그래서 Windows ZIP은 `windows-latest`에서 만들고, 재생 확인은 데스크톱 Windows 11 러너(`windows-11-arm`, x64 에뮬레이션)에서 합니다. 그 러너에는 Temurin 25가 없어 확인용 서버만 Java 21로 실행합니다(앱은 패키지 안 Java 25).
+
+**게시한 패키지 — [Release `client-v1.0.0`](https://github.com/LownC/chzzk-project/releases/tag/client-v1.0.0)** (GitHub Actions 실행 `45004187436`, 커밋 `34df653`에서 만들고 확인한 파일 그대로)
+
+| 운영체제·아키텍처 | 파일 | 크기 | SHA-256 |
+| --- | --- | --- | --- |
+| Windows 10·11 x64 | [chzzk-client-windows-x64.zip](https://github.com/LownC/chzzk-project/releases/download/client-v1.0.0/chzzk-client-windows-x64.zip) | 37,524,133 bytes | `fcd1131b47d09e6db03eaebcc2747452bfeb910eef44efc990486498f2fe07a5` |
+| macOS 13+ Apple Silicon (arm64) | [chzzk-client-macos-arm64.dmg](https://github.com/LownC/chzzk-project/releases/download/client-v1.0.0/chzzk-client-macos-arm64.dmg) | 39,502,405 bytes | `44f2360a707c1b8643a441562fc826d553d29e6379814edd393850fb0969895c` |
+
+체크섬 파일: [SHA256SUMS.txt](https://github.com/LownC/chzzk-project/releases/download/client-v1.0.0/SHA256SUMS.txt). 게시 뒤 공개 주소에서 두 파일을 다시 받아 체크섬이 일치하는 것을 확인했습니다. 다운로드 페이지(`/download`)는 기본 설정으로 이 주소들에 연결됩니다(`application.yaml`의 `app.download.*`, 환경변수로 바꿀 수 있음).
 
 ### OS별 설치·실행 확인 절차
 
@@ -718,6 +728,8 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 | Windows 앱 화면 | Windows 11 x64 | 창이 열림(제목 "치지직 - 서버 주소"). 화면 내용의 육안 확인 기록은 아직 없음 |
 | Windows 패키지(로컬, 로컬 확인 서버) | Windows 11 x64 | ZIP을 새로 풀어 시스템 Java 없이 `--smoke-test` → 목록 2개, 라이브 항목 재생 불가 분류, 640×360 MP4 2.1초 재생, 5.5초 탐색 성공 |
 | GitHub Actions 1차(2026-11-22, 실행 `45000450144`) | `windows-latest`(Windows Server 2025 x64), `macos-latest`(macOS 26 arm64) | 두 패키지 빌드 성공(`chzzk-client-windows-x64.zip`, `chzzk-client-macos-arm64.dmg`), 단위 테스트 통과. 두 앱 모두 패키지 안 런타임으로 실행됐지만 배포 서버가 없어 목록 조회에서 `ConnectException`(재생 확인 안 됨) |
+| GitHub Actions 2차(실행 `45002384137`) | 같은 러너 | macOS DMG 재생 확인 통과. Windows Server 러너는 `ERROR_MEDIA_AAC_FORMAT_UNSUPPORTED`(러너 OS에 AAC 디코더 없음, 같은 ZIP이 Windows 11에서는 재생됨) |
+| GitHub Actions 4차(실행 `45004187436`, 게시본) | `macos-latest`(macOS 26 arm64), `windows-11-arm`(Windows 11, x64 에뮬레이션) | 두 패키지 빌드 성공. 만든 파일을 마운트(DMG)·압축 해제(ZIP)해 시스템 Java 없이 실행 → 둘 다 목록 2개, 라이브 항목 재생 불가 분류, 640×360 MP4 2.1초 재생, 중간 탐색(5.6초·5.5초) 통과. 이 파일들을 Release `client-v1.0.0`으로 게시 |
 | macOS 실기기 | — | `NOT_TESTED`(Mac 없음) |
 | 공개 주소·HTTPS·외부 네트워크 다운로드 | — | `NOT_TESTED`(OCI A1 재고 부족으로 VM 미생성, 위 "생성 시도 기록") |
 

@@ -60,6 +60,8 @@
 		</tbody>
 	</table>
 
+	<p th:if="${checksumsUrl}">파일이 올바른지 확인하려면 SHA-256 체크섬(<a th:href="${checksumsUrl}">SHA256SUMS.txt</a>)과 비교하세요.</p>
+
 	<h2>참고</h2>
 	<ul>
 		<li>Intel Mac(x64)과 Windows on ARM용 패키지는 제공하지 않습니다.</li>

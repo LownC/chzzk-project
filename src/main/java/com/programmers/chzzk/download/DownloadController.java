@@ -14,18 +14,26 @@ public class DownloadController {
 
 	private final String windowsX64Url;
 	private final String macosArm64Url;
+	private final String checksumsUrl;
 
 	public DownloadController(@Value("${app.download.windows-x64-url:}") String windowsX64Url,
-		@Value("${app.download.macos-arm64-url:}") String macosArm64Url) {
-		this.windowsX64Url = windowsX64Url.isBlank() ? null : windowsX64Url;
-		this.macosArm64Url = macosArm64Url.isBlank() ? null : macosArm64Url;
+		@Value("${app.download.macos-arm64-url:}") String macosArm64Url,
+		@Value("${app.download.checksums-url:}") String checksumsUrl) {
+		this.windowsX64Url = blankToNull(windowsX64Url);
+		this.macosArm64Url = blankToNull(macosArm64Url);
+		this.checksumsUrl = blankToNull(checksumsUrl);
 	}
 
 	@GetMapping("/download")
 	public String download(Model model) {
 		model.addAttribute("windowsX64Url", windowsX64Url);
 		model.addAttribute("macosArm64Url", macosArm64Url);
+		model.addAttribute("checksumsUrl", checksumsUrl);
 		return "download";
+	}
+
+	private static String blankToNull(String value) {
+		return value == null || value.isBlank() ? null : value;
 	}
 
 }
