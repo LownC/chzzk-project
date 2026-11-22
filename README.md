@@ -5,6 +5,7 @@
 Stage 3에서 회원가입·로그인과 방송 소유자 권한, 방송별 댓글을 더했습니다. 방송 목록·시청·댓글 읽기는 로그인 없이 누구나 할 수 있고, 등록·송출·수정·삭제·댓글 작성은 로그인한 회원만 할 수 있습니다([인증·인가 정책](#인증인가-정책-stage-3)).
 Stage 4에서 방송자를 후원하는 도네이션을 더했습니다. 결제는 토스페이먼츠 **테스트 모드** 흐름(결제 요청 → 서버 승인 확인)으로 구현했고 실제 돈은 오가지 않습니다. 기본 실행은 외부 결제 서비스를 부르지 않는 가짜 게이트웨이로 같은 흐름을 확인합니다([도네이션](#도네이션-stage-4)).
 Stage 5에서 서버를 컨테이너 이미지로 만들어 이 PC의 Docker Compose로 여러 인스턴스를 띄우고, 자체 스케일러가 CPU 사용률에 따라 2~5개 사이에서 자동으로 늘리고 줄이게 했습니다. 로그인 세션·업로드 영상·라이브 상태·댓글·도네이션은 인스턴스 밖의 공용 저장소에 둡니다([로컬 오토스케일](#로컬-오토스케일-stage-5)).
+Stage 6에서 백엔드를 OCI Always Free VM에 배포해 `https://chzzk.lowndev.com`으로 제공하기 위한 설정(상태 확인 경로, 배포 프로파일, nginx·systemd)과, 방송 목록을 보고 녹화 방송을 재생하는 Windows·macOS 데스크톱 클라이언트를 더했습니다. 실제 VM 생성·공개 배포는 아직이며 현재 상태는 [Stage 6 절](#도메인oci-배포와-데스크톱-클라이언트-stage-6)에 적었습니다.
 
 ## 구현 범위
 
@@ -52,6 +53,14 @@ Stage 5에서 서버를 컨테이너 이미지로 만들어 이 PC의 Docker Com
 - 인스턴스가 줄어도 라이브 방송이 끝나지 않음: 송출·시청 화면이 다른 인스턴스로 다시 연결해 이어 감
 - k6 부하 스크립트(`deploy/load/k6-load.js`), 관찰한 인스턴스 수 변화 기록([로컬 오토스케일](#로컬-오토스케일-stage-5))
 - 설계 문서: [docs/autoscale.md](docs/autoscale.md)
+
+### Stage 6 — 도메인·OCI 배포와 Windows/macOS 클라이언트
+
+- 도메인 `lowndev.com`(Cloudflare Registrar)의 하위 도메인 `chzzk.lowndev.com`을 OCI Always Free VM 한 대로 연결, nginx + Let's Encrypt로 HTTPS 제공
+- 백엔드: 상태 확인 경로 `GET /health`, 데스크톱용 방송 목록 API `GET /api/broadcasts`, 배포 프로파일(`application-deploy.yaml`), 다운로드 페이지 `/download`
+- 배포 설정: `deploy/oci/`(nginx 사이트, systemd 서비스, 환경 파일 예시, 백업 스크립트)
+- 데스크톱 클라이언트: `client/`(JavaFX). 방송 목록 조회와 녹화 MP4 재생·정지·탐색. Windows x64 ZIP·macOS arm64 DMG(jpackage, Java 런타임 포함)
+- 자세한 내용과 확인 기록: [도메인·OCI 배포와 데스크톱 클라이언트](#도메인oci-배포와-데스크톱-클라이언트-stage-6)
 
 ### 제외(이후 단계)
 
@@ -524,6 +533,168 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 - 실제 카메라 영상이 오가는 WebRTC 연결은 클러스터에서 확인하지 않았습니다(**NOT_TESTED**). 시그널링 메시지 전달과 다시 연결만 확인했습니다.
 - 실제 토스페이먼츠 테스트 서버 호출은 하지 않았습니다(**NOT_TESTED**).
 
+## 도메인·OCI 배포와 데스크톱 클라이언트 (Stage 6)
+
+백엔드를 OCI Always Free VM 한 대에 배포해 `https://chzzk.lowndev.com`으로 제공하고, 같은 백엔드의 방송 목록을 보고 녹화 방송을 재생하는 Windows·macOS 앱을 내려받을 수 있게 합니다.
+
+> **현재 상태(2026-11-22):** 소스·배포 설정·클라이언트 빌드 설정과 로컬 확인까지 끝났습니다. OCI VM 생성, DNS 연결, 공개 배포, 패키지 게시는 아직 하지 않았습니다. 그래서 아래 공개 주소는 아직 열리지 않으며, 외부 네트워크·macOS 실행 확인은 `NOT_TESTED`입니다.
+
+### 구현 범위와 파일
+
+| 과제 요구 | 파일 |
+| --- | --- |
+| 상태 확인 경로 | `global/health/HealthController.java`(`GET /health`: 정상 200 `{"status":"UP"}`, DB 연결 실패 503 `{"status":"DOWN"}`, 내부 정보 없음), `DatabaseHealthCheck.java` |
+| 데스크톱용 방송 목록 | `broadcast/BroadcastApiController.java`(`GET /api/broadcasts?page=n`, 20개씩, 제목·유형·라이브 상태·재생 주소·웹 주소만. 소유자 정보 없음) |
+| 배포 실행 설정 | `src/main/resources/application-deploy.yaml`(아래 "배포 프로파일") |
+| OCI 배포 설정 | `deploy/oci/nginx-chzzk.conf`, `deploy/oci/chzzk.service`, `deploy/oci/chzzk.env.example`, `deploy/oci/backup.sh` |
+| 데스크톱 클라이언트 | `client/`(JavaFX 25, 독립 Gradle 빌드), `.github/workflows/client-build.yml`(OS별 패키지 빌드) |
+| 다운로드 페이지 | `download/DownloadController.java`, `templates/download.html`(`/download`) |
+
+기존 방송·계정·댓글·후원·라이브 기능과 화면은 바꾸지 않았습니다. 헤더에 "앱 다운로드" 링크만 더했습니다.
+
+### 도메인과 비용
+
+| 항목 | 내용 |
+| --- | --- |
+| 도메인 | `lowndev.com` (등록: 2026-11-22, 만료: 2027-11-22, 등록기관 Cloudflare Registrar) |
+| 서비스 주소 | `https://chzzk.lowndev.com` (다운로드 페이지 `https://chzzk.lowndev.com/download`) |
+| 최초 등록 비용 | 미기재 — Cloudflare 결제 내역 확인 후 기재 예정 |
+| 갱신 비용 | 연 $11.17 (Cloudflare 대시보드 표시 가격, 자동 갱신 꺼짐) |
+| 보호 | 이전 잠금(`clientTransferProhibited`), WHOIS 등록자 정보 비공개(RDAP `DATA REDACTED`) |
+| VM·인증서 비용 | 0원 (OCI Always Free 범위, Let's Encrypt 무료 인증서, Cloudflare Free 플랜) |
+
+### DNS와 HTTPS 구성
+
+```text
+브라우저 ──https──▶ chzzk.lowndev.com (Cloudflare DNS: A 레코드, DNS only)
+                        │ (Cloudflare 프록시를 거치지 않고 VM 공인 IP로 바로)
+                        ▼
+                  OCI VM: nginx :443 (Let's Encrypt 인증서, TLS 종료, 80은 https로 이동)
+                        │ X-Forwarded-For / X-Forwarded-Proto, Host 유지
+                        ▼
+                  Spring Boot 127.0.0.1:8080 (deploy 프로파일, systemd)
+                        │
+                  /data/chzzk/db (H2 파일 DB)   /data/chzzk/uploads (영상)
+```
+
+1. **DNS**: Cloudflare 대시보드 → `lowndev.com` → DNS → 레코드 추가: 유형 `A`, 이름 `chzzk`, 값 = VM 공인 IPv4, **프록시 상태 DNS only(회색 구름)**.
+   - DNS only를 고른 이유: Cloudflare Free 프록시는 요청 본문을 100MB까지만 받아, 기존 500MB 영상 업로드가 도메인으로는 실패합니다. DNS only면 브라우저가 VM의 nginx로 바로 접속해 500MB 업로드가 그대로 됩니다. 대신 VM 공인 IP가 공개되고 Cloudflare의 프록시 보호를 받지 않으므로, VM은 80·443(과 내 IP의 22)만 엽니다.
+   - DNS only에서는 Cloudflare의 SSL/TLS 모드(Full (strict) 등)가 이 하위 도메인에 적용되지 않고, 인증서는 VM에서 Let's Encrypt로 받습니다.
+2. **인증서**: VM에서 nginx를 잠시 멈추고 certbot standalone으로 받습니다. 갱신 때도 같은 방식이 자동으로 쓰입니다(certbot 타이머).
+
+   ```bash
+   sudo certbot certonly --standalone -d chzzk.lowndev.com --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx"
+   ```
+
+3. **nginx**: `deploy/oci/nginx-chzzk.conf` — 443 TLS(1.2·1.3), 80→443 이동, 업로드 510MB, WebSocket(`/ws/live`) 업그레이드, 영상 Range 요청 전달, `X-Forwarded-Proto`·`Host` 전달.
+
+### 배포 프로파일 (`application-deploy.yaml`)
+
+| 설정 | 값 | 이유 |
+| --- | --- | --- |
+| DB·업로드 경로, DB 비밀번호 | `APP_DATA_DIR`, `APP_UPLOAD_DIR`, `CHZZK_DB_PASSWORD` (기본값 없음) | 비밀 값·경로는 VM의 환경 파일로만. 없으면 시작하지 않음 |
+| `server.address` | `127.0.0.1` | 앱에 외부에서 바로 접속하지 못하게 함(nginx만 공개) |
+| `server.forward-headers-strategy` | `native`, 신뢰 프록시 `127.0.0.1`만 | https 주소·로그인 이동·WebSocket 같은 출처 검사가 프록시 뒤에서 맞게 됨. 다른 주소가 보낸 `X-Forwarded-*`는 무시 |
+| 세션 쿠키 | `Secure` | https에서만 전송 |
+| H2 콘솔 | 끔 | 운영 DB 노출 방지 |
+| 결제 | `fake` 고정 | 배포 서버도 외부 결제 서비스를 부르지 않음(④ 결정) |
+| 종료 | graceful(20초) | 재시작 때 처리 중인 요청을 마침 |
+| 업로드 한도 | 500MB 유지(`application.yaml`) | 기존 기능 그대로 |
+
+프록시 뒤 동작은 `DeployProfileServerTests`가 실제 Tomcat으로 확인합니다. 같은 https 페이지의 WebSocket 연결이 전달 헤더가 있으면 101, 없으면 403이 됩니다(이 설정이 필요한 이유).
+
+### OCI VM 선택 근거
+
+| 항목 | 값 |
+| --- | --- |
+| 리전 | 홈 리전(콘솔 로그인 후 확인해 기재 예정. Always Free 리소스는 홈 리전에서만 만들 수 있음) |
+| shape | `VM.Standard.A1.Flex` (Arm64, Ampere A1) |
+| OCPU / 메모리 | 2 OCPU / 12 GB |
+| 이미지 | Ubuntu 24.04 (aarch64), 부트 볼륨 50 GB + 데이터 블록 볼륨 약 100 GB(`/data`) |
+
+- Oracle 공식 문서(Always Free Resources)는 A1에 월 1,500 OCPU시간·9,000 GB시간(= 2 OCPU·12 GB 상시), 블록 스토리지 합계 200 GB(부트 볼륨 포함, 최소 47 GB), 백업 5개, 아웃바운드 월 10 TB를 무료로 줍니다. 위 구성은 이 범위 안입니다.
+- A1을 고른 이유: Java 서버(H2 내장, 업로드 처리)에 메모리가 충분하고, 앱 이미지·JAR가 Arm64에서 그대로 돌기 때문입니다(Temurin 25 aarch64, 공식 이미지 모두 `linux/arm64` 포함 확인). 무료 대안 `VM.Standard.E2.1.Micro`(AMD, 메모리 1 GB)는 Spring Boot에 메모리가 부족합니다.
+- 재고·리전 제한: A1 생성은 재고가 없으면 "Out of host capacity"로 실패할 수 있고, 문서에 춘천(South Korea North) 리전의 A1 제약 문구가 있습니다. 생성하지 못하면 무료 대안과 이유를 여기에 기록합니다.
+- 주의: Always Free 인스턴스는 7일 동안 CPU(95번째 백분위수)·네트워크·메모리(A1)가 모두 20% 미만이면 회수될 수 있습니다(공식 문서). 종량제(Pay As You Go)로 바꾸지 않았고, Always Free 표시가 없는 리소스는 만들지 않습니다.
+
+### 서버 설치와 배포 (재현 절차)
+
+1. **VM 만들기**(콘솔): 홈 리전, `VM.Standard.A1.Flex` 2 OCPU·12 GB, Ubuntu 24.04 aarch64, 공인 IPv4, SSH 공개 키 등록(비밀번호 로그인 없음). 블록 볼륨 약 100 GB를 붙입니다.
+2. **네트워크 보안**: VCN 보안 목록(또는 NSG) 수신 규칙은 TCP 22(내 공인 IP/32만), 80·443(0.0.0.0/0)만. Ubuntu 이미지의 iptables에도 80·443 허용을 더합니다. SSH는 키 인증만 쓰고 `PasswordAuthentication no`를 유지합니다.
+3. **패키지**: Temurin 25(aarch64, Adoptium APT 저장소), nginx, certbot.
+
+   ```bash
+   sudo apt-get update && sudo apt-get install -y nginx certbot
+   # Temurin 25: https://adoptium.net/installation/linux/ 의 APT 저장소 등록 후
+   sudo apt-get install -y temurin-25-jdk
+   ```
+
+4. **데이터 볼륨과 사용자**: 블록 볼륨을 `/data`에 마운트(`/etc/fstab`에 UUID로 등록)하고 앱 사용자와 폴더를 만듭니다.
+
+   ```bash
+   sudo useradd --system --home /opt/chzzk --shell /usr/sbin/nologin chzzk
+   sudo mkdir -p /opt/chzzk /data/chzzk/db /data/chzzk/uploads /etc/chzzk
+   sudo chown -R chzzk:chzzk /opt/chzzk /data/chzzk
+   ```
+
+5. **앱 올리기**: PC에서 `.\gradlew.bat bootJar`로 만든 `build/libs/chzzk-0.0.1-SNAPSHOT.jar`를 VM의 `/opt/chzzk/chzzk.jar`로 복사합니다(`scp`). JAR는 아키텍처와 무관합니다.
+6. **환경 파일**: `deploy/oci/chzzk.env.example`을 `/etc/chzzk/chzzk.env`로 복사해 값을 넣고 `sudo chmod 600 /etc/chzzk/chzzk.env`.
+7. **서비스**: `deploy/oci/chzzk.service`를 `/etc/systemd/system/`에 복사 → `sudo systemctl daemon-reload && sudo systemctl enable --now chzzk` → `curl -s http://127.0.0.1:8080/health`가 `{"status":"UP"}`.
+8. **인증서와 nginx**: 위 certbot 명령 → `deploy/oci/nginx-chzzk.conf`를 `/etc/nginx/sites-available/chzzk`로 복사, `sites-enabled`에 연결(기본 사이트 제거) → `sudo nginx -t && sudo systemctl reload nginx`.
+9. **DNS**: Cloudflare에 `chzzk` A 레코드(DNS only) → 외부에서 `https://chzzk.lowndev.com/health` 확인.
+10. **패키지 게시 후**: 환경 파일에 `APP_DOWNLOAD_WINDOWS_X64_URL`, `APP_DOWNLOAD_MACOS_ARM64_URL`을 넣고 `sudo systemctl restart chzzk`. 비어 있으면 다운로드 페이지는 "아직 게시되지 않음"으로 보입니다.
+
+**업데이트**: 새 JAR로 바꾼 뒤 `sudo systemctl restart chzzk`. **롤백**: 이전 JAR를 `/opt/chzzk/chzzk.jar`로 되돌리고 재시작합니다.
+
+### 백업과 복구
+
+- `deploy/oci/backup.sh`: 서비스를 잠시 멈추고 `/data/chzzk/db`와 `uploads`를 `/data/backup/chzzk-날짜.tar.gz`로 묶은 뒤 다시 시작합니다(H2 파일을 열린 채 복사하지 않음). 최근 7개를 남깁니다. 정기 실행은 root crontab(예: 매일 새벽 4시)으로 둡니다.
+- 디스크 장애 대비로 OCI 블록 볼륨 백업(Always Free 5개 이내)을 함께 씁니다.
+- 복구: `sudo systemctl stop chzzk` → `/data/chzzk`에 백업을 풀기(`tar -xzf ... -C /data/chzzk`) → 소유자 `chzzk`로 맞춤 → `sudo systemctl start chzzk` → `/health` 확인.
+
+### 데스크톱 클라이언트
+
+- JavaFX 25 + jpackage. 왼쪽 방송 목록(이전·다음 페이지, 새로고침), 가운데 플레이어(재생·일시정지, 정지, 탐색 막대, 시간). 녹화방송만 재생하고, 라이브 방송은 "웹 화면에서 시청" 안내와 웹 주소를 보여 줍니다. 목록 요청은 화면 스레드가 아닌 배경 작업으로 하고, 네트워크·재생 오류는 화면에 안내합니다.
+- 서버 주소: 기본 `https://chzzk.lowndev.com`. `--server=주소` 인자나 `CHZZK_SERVER_URL` 환경변수로 바꿉니다(로컬 확인용).
+- 패키지에 Java 런타임이 들어 있어 사용자는 Java를 설치하지 않아도 됩니다. 코드 서명은 하지 않아 Windows SmartScreen·macOS Gatekeeper 안내가 뜹니다(다운로드 페이지에 우회 방법 안내).
+
+| 대상 | 패키지 | 만드는 곳 |
+| --- | --- | --- |
+| Windows 10·11 x64 | `chzzk-client-windows-x64.zip` (app-image, 압축 풀고 `chzzk-client.exe`) | Windows PC 또는 Actions `windows-latest` |
+| macOS 13+ Apple Silicon(arm64) | `chzzk-client-macos-arm64.dmg` | Mac 또는 Actions `macos-latest` |
+| Intel Mac, Windows on ARM | 제공하지 않음 | — |
+
+```powershell
+.\gradlew.bat -p client test                    # 단위 테스트
+.\gradlew.bat -p client run --args="--server=http://127.0.0.1:8080"   # 개발 실행
+.\gradlew.bat -p client packageWindowsZip       # → client\build\dist\chzzk-client-windows-x64.zip
+```
+
+```bash
+./gradlew -p client packageMacDmg               # macOS에서 → client/build/dist/chzzk-client-macos-arm64.dmg
+```
+
+- `--smoke-test`(선택 `--smoke-log=파일`): 화면 없이 목록 조회 → 첫 녹화방송 2초 재생 → 중간 탐색을 확인하고 결과를 남깁니다. 로컬 확인과 Actions에서 씁니다. 실제 화면 표시·소리 확인을 대신하지 않습니다.
+- `.github/workflows/client-build.yml`은 Windows·macOS 패키지를 만들어 실행 결과의 Artifacts에만 올립니다(Releases 게시는 하지 않음). 빌드 성공은 실제 PC에서의 실행 확인을 뜻하지 않습니다.
+
+### OS별 설치·실행 확인 절차
+
+1. 외부 네트워크(예: 휴대폰 데이터 테더링)에서 `https://chzzk.lowndev.com/download`를 엽니다. 브라우저 주소창의 자물쇠(Let's Encrypt 인증서)를 확인합니다.
+2. **Windows**: ZIP을 받아 압축을 풀고 `chzzk-client.exe` 실행 → SmartScreen이 뜨면 "추가 정보 → 실행" → 목록에 방송이 보이는지, 녹화 방송을 골라 재생·일시정지·탐색이 되는지 확인합니다.
+3. **macOS(Apple Silicon)**: DMG를 열어 앱을 응용 프로그램으로 옮김 → Control-클릭 → 열기 → 같은 방법으로 목록·재생을 확인합니다.
+4. 결과를 아래 표에 OS·버전·아키텍처와 함께 기록합니다.
+
+### 확인 기록
+
+| 항목 | 환경 | 결과 |
+| --- | --- | --- |
+| 백엔드 자동 테스트 | Windows 11, JDK 25 | 292개 중 276개 통과·Redis 구현 16개 건너뜀·실패 0(Redis 지정 실행은 이날 미실시, 아래 "테스트") |
+| 로컬 배포 프로파일 실행 | 같은 PC, `deploy` 프로파일, `127.0.0.1:18081` | `/health` 200 UP, `127.0.0.1`에서만 수신, 실제 MP4(H.264/AAC 1280×720 20초) 업로드 → `/api/broadcasts`에 절대 재생 주소, Range 요청 206 |
+| Windows 패키지(로컬 빌드) | Windows 11 x64 | `chzzk-client-windows-x64.zip`(약 36 MB) 생성. 새 폴더에 풀고 `JAVA_HOME` 없이·PATH에 Java 없이 `chzzk-client.exe --smoke-test` → 패키지 안 런타임으로 목록 조회, 재생 2.1초, 10.6초로 탐색 성공(로컬 서버) |
+| Windows 앱 화면 | Windows 11 x64 | 창이 열림(제목 "치지직 - 서버 주소"). 화면 내용의 육안 확인 기록은 아직 없음 |
+| macOS 패키지 | — | 빌드 설정만 작성(`packageMacDmg`, Actions). 빌드·실행 `NOT_TESTED`(Mac 없음) |
+| 공개 주소·HTTPS·외부 네트워크 다운로드 | — | `NOT_TESTED`(VM 미생성) |
+
 ## 라이브 송출(②) — 휴대폰 연결과 확인 절차
 
 휴대폰에서 송출하고 PC 등 다른 화면에서 시청합니다. Stage 3부터 송출하려면 휴대폰에서 먼저 로그인해야 하고, 시청은 로그인 없이 됩니다. 영상·음성은 WebRTC로 휴대폰에서 시청자 브라우저로 직접 전달되고, 서버는 연결 협상 메시지만 중계합니다. 자세한 설계는 [docs/live-streaming.md](docs/live-streaming.md)를 참고하세요.
@@ -665,6 +836,7 @@ chzzk_project/
   docker stop chzzk-test-redis
   ```
 
+- Stage 6 기준 53개 테스트 클래스, 292개 테스트입니다. Redis 없이 실행하면 276개 통과·Redis 구현 16개 건너뜀(실패 0, 2026-11-22 확인). Stage 6에서 더한 테스트는 `HealthCheckTests`(정상 200·DB 실패 503, 내부 정보 없음), `BroadcastApiTests`(빈 목록·녹화/라이브 구분·소유자 정보 없음·잘못된 페이지·전달 헤더 미신뢰), `DeployProfileServerTests`(배포 프로파일 실제 서버: 전달 헤더로 https 주소, WebSocket 101/403, Secure 쿠키, H2 콘솔 꺼짐, 500MB·가짜 결제·루프백), `DownloadPageTests`(게시 전 링크 없음, 게시 후 OS별 링크) 16개입니다. 클라이언트 단위 테스트는 `.\gradlew.bat -p client test`(4개)입니다. 이날은 Docker Desktop이 꺼져 있어 Redis 지정 실행은 다시 하지 않았습니다.
 - Stage 5 기준 46개 테스트 클래스, 276개 테스트입니다. Redis 없이 실행하면 260개 통과·Redis 구현 16개 건너뜀(실패 0), `CHZZK_TEST_REDIS_PORT`를 지정하면 276개 모두 통과(실패·건너뜀 0)합니다(2026-11-18 확인).
 - Stage 4 기준 39개 테스트 클래스, 239개 테스트가 통과했습니다(실패·건너뜀 0). Stage 4 도네이션 테스트는 [Stage 4 검증 결과](#stage-4-검증-결과-2026-11-18)에 정리했습니다. 결제 서비스는 가짜 게이트웨이와 네트워크 없는 가짜 HTTP 서버만 쓰며 외부로 나가는 요청이 없습니다.
 - Stage 3 기준 34개 테스트 클래스, 199개 테스트가 통과했습니다(실패·건너뜀 0). Stage 3에서 추가·변경한 주요 테스트는 다음과 같습니다.
