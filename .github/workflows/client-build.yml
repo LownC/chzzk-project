@@ -1,8 +1,10 @@
-# ⑥ 데스크톱 클라이언트 OS별 패키지 빌드. jpackage는 실행하는 OS용 패키지만 만들므로 OS별 러너에서 각각 만든다.
+# ⑥ 데스크톱 클라이언트 OS별 패키지 빌드와 재생 확인. jpackage는 실행하는 OS용 패키지만 만들므로 OS별 러너에서 각각 만든다.
 #   - Windows x64: app-image ZIP (chzzk-client-windows-x64.zip)
 #   - macOS arm64(Apple Silicon): DMG (chzzk-client-macos-arm64.dmg)
-# 결과는 워크플로 실행의 Artifacts로만 올린다. GitHub Releases 게시는 하지 않는다(게시는 사람이 확인한 뒤 따로).
-# 빌드 성공은 패키지가 만들어졌다는 뜻일 뿐, 실제 사용자 PC에서 설치·실행·재생이 확인됐다는 뜻은 아니다(README "확인 기록").
+# 만든 패키지 파일(사용자가 받을 그 파일)을 풀거나(ZIP) 마운트해(DMG), 시스템 Java 없이 실행해 확인한다.
+#   러너 안의 작은 HTTP 서버(client/smoke/SmokeServer.java)가 목록 API와 실제 H.264/AAC MP4(Range 지원)를 준다.
+#   확인: 목록 조회 → 라이브 항목은 재생 불가 분류 → 녹화 MP4 2초 재생 → 중간 탐색. 실패하면 작업이 실패한다.
+# GitHub 러너(가상 머신)에서의 확인이며 실제 사용자 PC·Mac 실기기 확인을 대신하지 않는다. Releases 게시는 하지 않는다.
 name: client-build
 
 on:
@@ -22,49 +24,85 @@ jobs:
       matrix:
         include:
           - os: windows-latest
+            label: Windows x64
             task: packageWindowsZip
             artifact: client/build/dist/chzzk-client-windows-x64.zip
           - os: macos-latest
+            label: macOS arm64
             task: packageMacDmg
             artifact: client/build/dist/chzzk-client-macos-arm64.dmg
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "25"
 
       - name: Unit tests
         run: ./gradlew -p client --no-daemon test
-        shell: bash
 
       - name: Package
-        run: ./gradlew -p client --no-daemon ${{ matrix.task }}
-        shell: bash
-
-      # 배포 서버(https://chzzk.lowndev.com)가 열려 있을 때만 의미가 있다. 서버가 없으면 실패해도 빌드는 계속한다.
-      - name: Smoke test (Windows app-image)
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        shell: bash
+        id: package
         run: |
-          ./gradlew -p client --no-daemon packageAppImage
-          client/build/jpackage/chzzk-client/chzzk-client.exe --smoke-test --smoke-log=smoke.log; status=$?
-          cat smoke.log; exit $status
+          ./gradlew -p client --no-daemon ${{ matrix.task }}
+          ls -l client/build/dist
 
-      - name: Smoke test (macOS app)
-        if: runner.os == 'macOS'
-        continue-on-error: true
-        shell: bash
+      - name: Start local smoke server
         run: |
-          ./gradlew -p client --no-daemon packageAppImage
-          client/build/jpackage/chzzk-client.app/Contents/MacOS/chzzk-client --smoke-test --smoke-log=smoke.log; status=$?
-          cat smoke.log; exit $status
+          java client/smoke/SmokeServer.java 18080 client/smoke/sample-h264-aac.mp4 > smoke-server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:18080/api/broadcasts > /dev/null && break; sleep 1; done
+          cat smoke-server.log
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=0-99' http://127.0.0.1:18080/videos/sample.mp4)
+          echo "range request -> $code"; test "$code" = "206"
+
+      - name: Playback smoke test (packaged artifact, no system Java)
+        id: smoke
+        run: |
+          set +e
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            rm -rf artifact-test && mkdir artifact-test
+            unzip -q "${{ matrix.artifact }}" -d artifact-test
+            app="artifact-test/chzzk-client/chzzk-client.exe"
+          else
+            hdiutil attach -nobrowse -readonly -mountpoint /tmp/chzzk-dmg "${{ matrix.artifact }}"
+            app="/tmp/chzzk-dmg/chzzk-client.app/Contents/MacOS/chzzk-client"
+          fi
+          env -u JAVA_HOME PATH="/usr/bin:/bin:/c/Windows/System32:/c/Windows" \
+            "$app" --smoke-test --server=http://127.0.0.1:18080 --smoke-log=smoke.log
+          status=$?
+          [ "$RUNNER_OS" = "macOS" ] && hdiutil detach /tmp/chzzk-dmg
+          cat smoke.log
+          grep -q "SMOKE PASS playback" smoke.log || status=1
+          exit $status
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.label }}"
+            echo "| 항목 | 결과 |"
+            echo "| --- | --- |"
+            echo "| 패키지 빌드 | ${{ steps.package.outcome }} |"
+            echo "| 재생 확인(러너, 로컬 서버, 목록·재생·탐색) | ${{ steps.smoke.outcome }} |"
+            echo "| 실제 사용자 PC/Mac 실기기 확인 | 이 워크플로에서는 하지 않음(NOT_TESTED) |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}-package
           path: ${{ matrix.artifact }}
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.os }}-smoke-log
+          path: |
+            smoke.log
+            smoke-server.log
+          if-no-files-found: ignore

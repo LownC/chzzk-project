@@ -616,6 +616,20 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 - Oracle 공식 문서(Always Free Resources)는 A1에 월 1,500 OCPU시간·9,000 GB시간(= 2 OCPU·12 GB 상시), 블록 스토리지 합계 200 GB(부트 볼륨 포함, 최소 47 GB), 백업 5개, 아웃바운드 월 10 TB를 무료로 줍니다. 위 구성은 이 범위 안입니다.
 - A1을 고른 이유: Java 서버(H2 내장, 업로드 처리)에 메모리가 충분하고, 앱 이미지·JAR가 Arm64에서 그대로 돌기 때문입니다(Temurin 25 aarch64, 공식 이미지 모두 `linux/arm64` 포함 확인). 무료 대안 `VM.Standard.E2.1.Micro`(AMD, 메모리 1 GB)는 Spring Boot에 메모리가 부족합니다.
 - 재고·리전 제한: A1 생성은 재고가 없으면 "Out of host capacity"로 실패할 수 있고, 문서에 춘천(South Korea North) 리전의 A1 제약 문구가 있습니다. 생성하지 못하면 무료 대안과 이유를 여기에 기록합니다.
+
+**계정 확인과 생성 시도 기록 (2026-11-22, 콘솔 직접 확인)**
+
+| 항목 | 내용 |
+| --- | --- |
+| 계정 | Free Tier(Free Trial 진행 중). 종량제(Pay As You Go)로 바꾸지 않음 |
+| 홈 리전 | Indonesia North (Batam), `ap-batam-1`, 가용성 도메인 1개(`AP-BATAM-1-AD-1`) |
+| 생성 전 사용량 | 인스턴스·부트 볼륨·블록 볼륨·VCN·예약 공인 IP 모두 0, Always Free 블록 스토리지 200 GB 중 0 GB, 이번 달 비용 0 |
+| 생성 화면 표시 | `VM.Standard.A1.Flex` "Always Free-eligible", Ubuntu 24.04 이미지 "Free". 예상 비용 패널은 "Boot volume $2.93/month"였고 같은 패널에 무료 제공량(tier pricing)을 반영하지 않는다고 적혀 있음 |
+| 1차 시도 | A1 2 OCPU / 12 GB, 부트 50 GB → `Out of capacity for shape VM.Standard.A1.Flex in availability domain AD-1.` |
+| 2차 시도 | A1 1 OCPU / 6 GB(무료 대안, 한 번만) → 같은 오류 |
+| 시도 뒤 상태 | 인스턴스·VCN·부트 볼륨 모두 0(남은 리소스 없음). 재시도·다른 shape·유료 전환은 하지 않음 |
+
+홈 리전(Batam)은 가용성 도메인이 하나라 다른 곳에서 만들 수 없습니다. A1 재고가 생기면 위 구성(2 OCPU·12 GB 우선, 안 되면 1 OCPU·6 GB)으로 다시 만들고 이 표에 결과를 더합니다. 그 전까지 공개 서버(`chzzk.lowndev.com`)는 열리지 않습니다.
 - 주의: Always Free 인스턴스는 7일 동안 CPU(95번째 백분위수)·네트워크·메모리(A1)가 모두 20% 미만이면 회수될 수 있습니다(공식 문서). 종량제(Pay As You Go)로 바꾸지 않았고, Always Free 표시가 없는 리소스는 만들지 않습니다.
 
 ### 서버 설치와 배포 (재현 절차)
@@ -676,7 +690,8 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 ```
 
 - `--smoke-test`(선택 `--smoke-log=파일`): 화면 없이 목록 조회 → 첫 녹화방송 2초 재생 → 중간 탐색을 확인하고 결과를 남깁니다. 로컬 확인과 Actions에서 씁니다. 실제 화면 표시·소리 확인을 대신하지 않습니다.
-- `.github/workflows/client-build.yml`은 Windows·macOS 패키지를 만들어 실행 결과의 Artifacts에만 올립니다(Releases 게시는 하지 않음). 빌드 성공은 실제 PC에서의 실행 확인을 뜻하지 않습니다.
+- `.github/workflows/client-build.yml`(GitHub 무료 표준 러너 `windows-latest`, `macos-latest`)은 Windows ZIP·macOS DMG를 만든 뒤, **만든 패키지 파일 자체**를 풀거나(ZIP) 마운트해(DMG) 시스템 Java 없이 `--smoke-test`로 실행합니다. 상대 서버는 러너 안의 작은 HTTP 서버(`client/smoke/SmokeServer.java`: 목록 API 모양의 응답, 실제 H.264/AAC MP4 `client/smoke/sample-h264-aac.mp4` 10초, Range 206 지원)입니다. 확인 실패는 작업 실패가 되고, 작업 요약에 "패키지 빌드"와 "재생 확인"을 따로 적습니다. 결과는 실행의 Artifacts에만 올립니다(Releases 게시는 따로).
+- 이 확인은 GitHub 러너(가상 머신)에서의 실행입니다. 실제 사용자 PC·Mac 실기기에서 화면을 보며 확인한 것과는 다르며 별도로 기록합니다.
 
 ### OS별 설치·실행 확인 절차
 
@@ -693,8 +708,10 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 | 로컬 배포 프로파일 실행 | 같은 PC, `deploy` 프로파일, `127.0.0.1:18081` | `/health` 200 UP, `127.0.0.1`에서만 수신, 실제 MP4(H.264/AAC 1280×720 20초) 업로드 → `/api/broadcasts`에 절대 재생 주소, Range 요청 206 |
 | Windows 패키지(로컬 빌드) | Windows 11 x64 | `chzzk-client-windows-x64.zip`(약 36 MB) 생성. 새 폴더에 풀고 `JAVA_HOME` 없이·PATH에 Java 없이 `chzzk-client.exe --smoke-test` → 패키지 안 런타임으로 목록 조회, 재생 2.1초, 10.6초로 탐색 성공(로컬 서버) |
 | Windows 앱 화면 | Windows 11 x64 | 창이 열림(제목 "치지직 - 서버 주소"). 화면 내용의 육안 확인 기록은 아직 없음 |
-| macOS 패키지 | — | 빌드 설정만 작성(`packageMacDmg`, Actions). 빌드·실행 `NOT_TESTED`(Mac 없음) |
-| 공개 주소·HTTPS·외부 네트워크 다운로드 | — | `NOT_TESTED`(VM 미생성) |
+| Windows 패키지(로컬, 로컬 확인 서버) | Windows 11 x64 | ZIP을 새로 풀어 시스템 Java 없이 `--smoke-test` → 목록 2개, 라이브 항목 재생 불가 분류, 640×360 MP4 2.1초 재생, 5.5초 탐색 성공 |
+| GitHub Actions 1차(2026-11-22, 실행 `45000450144`) | `windows-latest`(Windows Server 2025 x64), `macos-latest`(macOS 26 arm64) | 두 패키지 빌드 성공(`chzzk-client-windows-x64.zip`, `chzzk-client-macos-arm64.dmg`), 단위 테스트 통과. 두 앱 모두 패키지 안 런타임으로 실행됐지만 배포 서버가 없어 목록 조회에서 `ConnectException`(재생 확인 안 됨) |
+| macOS 실기기 | — | `NOT_TESTED`(Mac 없음) |
+| 공개 주소·HTTPS·외부 네트워크 다운로드 | — | `NOT_TESTED`(OCI A1 재고 부족으로 VM 미생성, 위 "생성 시도 기록") |
 
 ## 라이브 송출(②) — 휴대폰 연결과 확인 절차
 

@@ -55,6 +55,14 @@ final class SmokeTest {
 			return 1;
 		}
 		println("SMOKE list ok: " + page.broadcasts().size() + " broadcasts, totalPages=" + page.totalPages());
+		// 라이브 방송은 앱에서 재생하지 않고 웹 화면 안내를 띄워야 한다(재생 가능으로 잘못 분류되면 실패).
+		boolean liveMisclassified = page.broadcasts().stream().anyMatch(b -> "LIVE".equals(b.type()) && b.playable());
+		if (liveMisclassified) {
+			println("SMOKE FAIL list: a LIVE broadcast was treated as playable");
+			return 1;
+		}
+		page.broadcasts().stream().filter(b -> "LIVE".equals(b.type())).findFirst()
+			.ifPresent(b -> println("SMOKE live item not playable in app (web page guidance): " + b.pageUrl()));
 		Optional<Broadcast> target = page.broadcasts().stream().filter(Broadcast::playable).findFirst();
 		if (target.isEmpty()) {
 			println("SMOKE FAIL playback: no recorded broadcast to play");
