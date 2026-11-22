@@ -122,10 +122,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # 이 JDK는 확인용 서버(SmokeServer.java)만 실행한다. Windows Arm64용 Temurin 25가 없어 21을 쓴다.
+      # 앱은 패키지 안의 Java 25 런타임으로 실행된다.
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "25"
+          java-version: "21"
 
       - uses: actions/download-artifact@v4
         with:
