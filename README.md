@@ -632,7 +632,7 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env down -v   # 클러�
 
 | 항목 | 값 |
 | --- | --- |
-| 리전 | 홈 리전(콘솔 로그인 후 확인해 기재 예정. Always Free 리소스는 홈 리전에서만 만들 수 있음) |
+| 리전 | 홈 리전 Indonesia North (Batam), `ap-batam-1`, 가용성 도메인 1개(콘솔 확인. Always Free 리소스는 홈 리전에서만 만들 수 있음) |
 | shape | `VM.Standard.A1.Flex` (Arm64, Ampere A1) |
 | OCPU / 메모리 | 2 OCPU / 12 GB |
 | 이미지 | Ubuntu 24.04 (aarch64), 부트 볼륨 50 GB + 데이터 블록 볼륨 약 100 GB(`/data`) |
